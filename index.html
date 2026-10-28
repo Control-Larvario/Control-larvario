@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sistema de Supervisi&#243;n y Monitoreo de Viviendas &#8212; DIRESA San Mart&#237;n</title>
+<link rel="icon" href="logo.png">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="presentacion.css">
+</head>
+<body data-page="portada">
+<div class="fondo"></div>
+<div class="ondas"></div>
+
+<header class="top">
+  <div class="marca">
+    <span class="marca-logo"><img src="logo.png" alt="Logo DIRESA San Mart&#237;n" onerror="this.style.display='none'"></span>
+    <span class="marca-txt"><strong>DIRECCI&#211;N REGIONAL<br>DE SALUD SAN MART&#205;N</strong><small>UNIDAD DE GESTI&#211;N DE<br>ENFERMEDADES TRANSMISIBLES</small></span>
+  </div>
+  <span class="activo" id="estadoSistema"><i></i>SISTEMA ACTIVO</span>
+</header>
+
+<main class="escena">
+  <section class="tarjeta">
+    <span class="pildora"><i></i>VIGILANCIA ENTOMOL&#211;GICA Y CONTROL VECTORIAL</span>
+    <h1><span class="b">SISTEMA DE</span> <span class="v">SUPERVISI&#211;N Y</span> <span class="v">MONITOREO DE</span> <span class="a">VIVIENDAS</span></h1>
+    <span class="raya"></span>
+    <p class="bajada">Registro de viviendas supervisadas y monitoreadas por los jefes de brigada, y control de su productividad frente a la meta mensual en la regi&#243;n San Mart&#237;n.</p>
+
+    <div class="mods" id="mods">
+      <div class="mod"><span>&#128221;</span><b>REGISTRO<small>DE INTERVENCIONES</small></b></div>
+      <div class="mod"><span>&#128119;</span><b>JEFES<small>DE BRIGADA</small></b></div>
+      <div class="mod"><span>&#127919;</span><b>METAS<small>MENSUALES</small></b></div>
+      <div class="mod"><span>&#128202;</span><b>REPORTES<small>Y CALENDARIO</small></b></div>
+    </div>
+
+    <button class="ingresar" id="btnIngresar" type="button"><span><b>INGRESAR AL SISTEMA</b><small>Usuario y contrase&#241;a asignados por el administrador</small></span><i>&#8594;</i></button>
+
+    <form class="login" id="frmLogin" hidden autocomplete="on">
+      <label>Usuario<input id="lgUsuario" name="username" autocomplete="username" required></label>
+      <label>Contrase&#241;a<input id="lgClave" name="password" type="password" autocomplete="current-password" required></label>
+      <p class="msg" id="lgMsg" role="alert"></p>
+      <div class="login-acc"><button class="ingresar chico" type="submit" id="lgBtn"><span><b>ENTRAR</b></span><i>&#8594;</i></button><button type="button" class="volver" id="lgVolver">Volver</button></div>
+    </form>
+
+    <div class="pie-datos">
+      <div><b id="anio">2026</b><small>Periodo</small></div>
+      <div><b>&#128205; San Mart&#237;n</b><small>Regi&#243;n</small></div>
+      <div><b>&#128737;&#65039; UNGET</b><small>Control vectorial</small></div>
+    </div>
+  </section>
+
+  <aside class="visual">
+    <div class="circulo"><img src="mosquito-real.jpg" alt="Mosquito Aedes aegypti" onerror="this.style.opacity=0"></div>
+    <div class="cartel"><b>Aedes aegypti</b><small>Principal vector del dengue</small></div>
+    <div class="prevencion"><img src="mosquito-prevencion.png" alt="" onerror="this.style.display='none'"><span>PREVENCI&#211;N Y CONTROL<b>DEL DENGUE</b></span></div>
+  </aside>
+</main>
+
+<footer class="pie">Sistema de supervisi&#243;n y monitoreo de viviendas &#183; UNGET San Mart&#237;n &#183; <span id="anio2">2026</span></footer>
+
+<script src="script.js"></script>
+</body>
+</html>

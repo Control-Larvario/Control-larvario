@@ -1,0 +1,44 @@
+SISTEMA DE SUPERVISIÓN Y MONITOREO DE VIVIENDAS
+================================================
+
+ARCHIVOS
+  index.html .......... Portada con el ingreso por usuario y contraseña
+  dashboard.html ...... Sistema (el administrador ve el dashboard; el jefe de brigada, su registro)
+  presentacion.css .... Estilos de la portada
+  style.css ........... Estilos del dashboard
+  script.js ........... TODA la lógica del sistema (aquí se hace cualquier cambio)
+  Codigo.gs ........... Servidor en Google Apps Script (guarda usuarios, registros y metas en Google Sheets)
+
+IMÁGENES: copia de C:\Dashboard_Dengue\Dashboard_Dengue_Web estos archivos a esta carpeta:
+  logo.png, mosquito.png, mosquito-real.jpg, mosquito-prevencion.png, selva.jpg
+
+PASO 1 — Crear la base de datos (Google Sheets + Apps Script)
+  1. Entra a sheets.google.com y crea una hoja nueva: "BD Supervision y Monitoreo".
+  2. Menú Extensiones > Apps Script. Borra el contenido y pega todo Codigo.gs.
+  3. En la línea ADMIN_CLAVE_INICIAL escribe la contraseña del administrador.
+  4. Guarda, elige la función "instalar" y pulsa Ejecutar. Acepta los permisos.
+     Se crean las hojas USUARIOS, REGISTROS, METAS y SESIONES, y el usuario "admin".
+  5. Implementar > Nueva implementación > tipo "Aplicación web".
+     Ejecutar como: Yo   |   Quién tiene acceso: Cualquier usuario
+  6. Copia la URL que termina en /exec.
+
+PASO 2 — Conectar la web
+  Abre script.js y pega la URL en:   API_URL: "https://script.google.com/macros/s/....../exec",
+
+PASO 3 — Publicar en GitHub Pages
+  Sube los archivos (y las imágenes) a un repositorio, igual que Dashboard_Dengue_Web.
+
+USO
+  - Ingresa como admin. En "Usuarios" crea a cada jefe de brigada (rol Jefe de brigada).
+    El nombre debe escribirse igual que en tu Excel para que se unan sus registros anteriores.
+  - En "Metas" registra las viviendas programadas de cada jefe por mes.
+  - En "Importar Excel" puedes subir tu Excel de supervisión y monitoreo (no duplica).
+  - Cada jefe de brigada entra con su usuario y registra sus intervenciones.
+
+MODO DEMOSTRACIÓN
+  Si API_URL está vacío, el sistema funciona solo en el navegador para probarlo:
+  usuario: admin   contraseña: admin123
+
+SI CAMBIAS Codigo.gs
+  Implementar > Gestionar implementaciones > Editar (lápiz) > Versión: Nueva versión > Implementar.
+  Así la URL /exec se mantiene.

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard de Supervisi&#243;n y Monitoreo de Viviendas</title>
+<link rel="icon" href="logo.png">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body data-page="dashboard">
+
+<header class="cabecera">
+  <a class="cab-logo" href="index.html" title="Ir a la portada"><img src="logo.png" alt="Logo" onerror="this.style.display='none'"></a>
+  <div class="cab-banda">
+    <div class="cab-titulo">
+      <h1 id="tituloSistema">DASHBOARD DE SUPERVISI&#211;N Y MONITOREO DE VIVIENDAS</h1>
+      <p>Productividad de los jefes de brigada &#8212; viviendas supervisadas y monitoreadas frente a la meta mensual</p>
+    </div>
+    <img class="cab-mosquito" src="mosquito.png" alt="" onerror="this.style.display='none'">
+    <div class="cab-act"><span>&#128197;</span><div><small>&#218;ltima actualizaci&#243;n</small><b id="ultimaAct">Cargando&#8230;</b><small id="ultimaHora"></small></div></div>
+  </div>
+</header>
+
+<nav class="barra">
+  <div class="tabs" id="tabs"></div>
+  <div class="sesion"><span id="quien">&#8230;</span><button class="btn-sec" id="btnClave" type="button">Cambiar contrase&#241;a</button><button class="btn-sec" id="btnSalir" type="button">Cerrar sesi&#243;n</button></div>
+</nav>
+
+<div id="aviso"></div>
+
+<main id="contenido">
+  <div class="cargando" id="cargando">Cargando datos&#8230;</div>
+
+  <!-- ===================== ADMIN: DASHBOARD ===================== -->
+  <section class="vista" id="v-dashboard" hidden>
+    <div class="panel filtros">
+      <div class="f-grid">
+        <label><span>&#128205; Localidad</span><select id="fLocalidad"></select></label>
+        <div class="f-col">
+          <label><span>&#128197; Mes</span><select id="fMes"></select></label>
+          <label><span>&#128197; Fecha inicial</span><input type="date" id="fDesde"></label>
+          <label><span>&#128197; Fecha final</span><input type="date" id="fHasta"></label>
+          <button class="btn-teal ancho" id="btnResetFechas" type="button">&#8634; Restablecer fechas</button>
+        </div>
+        <div class="f-col">
+          <label><span>&#128100; Jefe de brigada</span><select id="fJefe"></select></label>
+          <input type="search" id="fBuscar" placeholder="&#128270; Buscar jefe de brigada&#8230;" aria-label="Buscar jefe de brigada">
+          <button class="btn-teal" id="btnBuscar" type="button">&#128270; Buscar</button>
+        </div>
+        <label><span>&#128450;&#65039; Sector</span><select id="fSector"></select></label>
+        <label><span>&#128203; Tipo de actividad</span><select id="fActividad"><option value="">Todos</option><option>SUPERVISI&#211;N</option><option>MONITOREO</option></select></label>
+        <label><span>&#128260; Actualizar</span><button class="btn-teal ancho" id="btnRecargar" type="button">Recargar datos</button></label>
+      </div>
+      <div class="descargas">
+        <button class="btn-d d-teal" data-xls="jefes" type="button">&#11015; Descargar productividad por jefe</button>
+        <button class="btn-d d-teal" data-xls="localidad" type="button">&#11015; Descargar detalle por localidad</button>
+        <button class="btn-d d-rojo" data-xls="diaria" type="button">&#11015; Descargar producci&#243;n diaria</button>
+        <button class="btn-d d-verde" data-xls="registros" type="button">&#11015; Descargar registros</button>
+      </div>
+      <p class="nota" id="notaFiltro"></p>
+    </div>
+
+    <div class="kpis" id="kpis"></div>
+
+    <div class="fila f2m">
+      <div class="panel"><h2>&#127919; Avance de la meta</h2>
+        <div class="cobertura"><div class="dona"><canvas id="chMeta"></canvas><div class="dona-c"><b id="metaPct">0%</b><small>Avance<br>de la meta</small></div></div>
+          <div class="mini-c" id="miniMeta"></div></div></div>
+      <div class="panel"><h2>&#127942; Ranking de jefes de brigada</h2><div class="ch"><canvas id="chRank"></canvas></div></div>
+    </div>
+
+    <div class="fila f2">
+      <div class="panel"><h2>&#128467;&#65039; Calendario de intervenciones</h2>
+        <div class="cal-nav"><button class="btn-sec" id="calPrev" type="button" aria-label="Mes anterior">&#8249;</button><b id="calTitulo"></b><button class="btn-sec" id="calNext" type="button" aria-label="Mes siguiente">&#8250;</button></div>
+        <div class="cal" id="cal"></div><div id="calDetalle"></div></div>
+      <div class="panel"><h2>&#128119; Productividad por jefe de brigada</h2><p class="sub" id="subProd"></p><div class="tabla" id="tProd"></div></div>
+    </div>
+    <div class="panel"><h2>&#128203; Producci&#243;n diaria por jefe de brigada</h2><p class="sub">Viviendas por d&#237;a del mes mostrado en el calendario.</p><div class="tabla" id="tDiaria"></div></div>
+    <div class="panel"><h2>&#128205; Detalle por localidad</h2><div class="tabla" id="tLoc"></div></div>
+  </section>
+
+  <!-- ===================== ADMIN: REGISTROS ===================== -->
+  <section class="vista" id="v-registros" hidden>
+    <div class="panel"><h2>&#128221; Registros de los jefes de brigada</h2>
+      <div class="f-linea"><label>Mes<select id="rMes"></select></label><label>Jefe de brigada<select id="rJefe"></select></label><span class="sub" id="rCuenta"></span>
+        <button class="btn-teal" id="btnNuevoAdmin" type="button">+ Registrar intervenci&#243;n</button></div>
+      <div class="tabla" id="tRegAdmin"></div></div>
+  </section>
+
+  <!-- ===================== ADMIN: USUARIOS ===================== -->
+  <section class="vista" id="v-usuarios" hidden>
+    <div class="fila u2">
+      <div class="panel claro"><h2 class="h-claro">Crear un usuario</h2><p class="sub">Completa todos los campos para crear al nuevo usuario</p>
+        <form id="frmUsuario" class="form-u" autocomplete="off">
+          <label>Rol<select id="uRol"><option value="JEFE">Jefe de brigada</option><option value="ADMIN">Administrador</option></select></label>
+          <label>Usuario<input id="uUsuario" required placeholder="ej. jsamanta" autocomplete="off"></label>
+          <label>Contrase&#241;a<input id="uClave" type="text" required minlength="6" autocomplete="new-password"></label>
+          <label>Doc. identidad (DNI)<input id="uDni" inputmode="numeric" maxlength="12"></label>
+          <label>Nombres y apellidos<input id="uNombre" required></label>
+          <p class="msg" id="uMsg" role="alert"></p>
+          <button class="btn-azul" type="submit" id="uBtn">Crear cuenta</button>
+        </form></div>
+      <div class="panel claro"><div class="u-cab"><div><h2 class="h-claro">Usuarios registrados</h2><p class="sub">Busca tus usuarios registrados</p></div><button class="btn-sec" type="button" id="btnXlsUsuarios">&#11015; Descargar usuarios</button></div>
+        <div class="f-linea"><input type="search" id="uBuscar" placeholder="Buscar por DNI, nombre o usuario&#8230;" aria-label="Buscar usuario"></div>
+        <div class="tabla" id="tUsuarios"></div></div>
+    </div>
+  </section>
+
+  <!-- ===================== ADMIN: METAS ===================== -->
+  <section class="vista" id="v-metas" hidden>
+    <div class="panel"><h2>&#127919; Metas mensuales de viviendas programadas</h2>
+      <div class="f-linea"><label>Mes<input type="month" id="mMes"></label><button class="btn-sec" id="btnCopiarMetas" type="button">Copiar metas del mes anterior</button><span class="sub" id="mTotal"></span></div>
+      <div class="tabla" id="tMetas"></div>
+      <div class="f-linea"><button class="btn-teal" id="btnGuardarMetas" type="button">Guardar metas</button><span class="msg" id="mMsg"></span></div></div>
+  </section>
+
+  <!-- ===================== ADMIN: IMPORTAR ===================== -->
+  <section class="vista" id="v-importar" hidden>
+    <div class="panel"><h2>&#128229; Importar registros desde Excel</h2>
+      <p class="sub">Acepta el formato de tu Excel: ACTIVIDAD, LOCALIDAD, SECTOR, VIVIENDAS MONITOREADAS, CERRADAS, DESHABITADAS, RENUENTES, TOTAL DE VIVIENDAS, FECHA DE INTERVENCION y JEFE DE BRIGADA. Si importas el mismo archivo dos veces, no se duplican los registros.</p>
+      <div class="f-linea"><input type="file" id="fileXls" accept=".xlsx,.xls,.xlsm,.csv"></div>
+      <div id="impPrev"></div></div>
+  </section>
+
+  <!-- ===================== JEFE: REGISTRAR ===================== -->
+  <section class="vista" id="v-registrar" hidden>
+    <div class="kpis" id="kpisJefe"></div>
+    <div class="fila f2">
+      <div class="panel"><h2 id="frmTitulo">&#128221; Registrar intervenci&#243;n</h2>
+        <form id="frmReg" class="form-r" autocomplete="off">
+          <label class="r2" id="lblJefeAdmin" hidden>Jefe de brigada<select id="rgUsuario"></select></label>
+          <label>Actividad<select id="rgActividad"><option>SUPERVISI&#211;N</option><option>MONITOREO</option></select></label>
+          <label>Fecha de intervenci&#243;n<input type="date" id="rgFecha" required></label>
+          <label>Localidad<input id="rgLocalidad" list="dlLocalidades" required></label>
+          <label>Sector<input id="rgSector" required></label>
+          <label>Viviendas monitoreadas<input type="number" min="0" inputmode="numeric" id="rgMon" required></label>
+          <label>Cerradas<input type="number" min="0" inputmode="numeric" id="rgCer" value="0"></label>
+          <label>Deshabitadas<input type="number" min="0" inputmode="numeric" id="rgDes" value="0"></label>
+          <label>Renuentes<input type="number" min="0" inputmode="numeric" id="rgRen" value="0"></label>
+          <label class="r2">Total de viviendas<input type="number" min="0" inputmode="numeric" id="rgTot"><small>Se calcula solo: monitoreadas + cerradas + deshabitadas + renuentes.</small></label>
+          <p class="msg r2" id="rgMsg" role="alert"></p>
+          <div class="r2 acciones"><button class="btn-teal" type="submit" id="rgBtn">Guardar registro</button><button class="btn-sec" type="button" id="rgCancelar" hidden>Cancelar edici&#243;n</button></div>
+        </form></div>
+      <div class="panel"><h2>&#128467;&#65039; Mi calendario</h2>
+        <div class="cal-nav"><button class="btn-sec" id="jcPrev" type="button" aria-label="Mes anterior">&#8249;</button><b id="jcTitulo"></b><button class="btn-sec" id="jcNext" type="button" aria-label="Mes siguiente">&#8250;</button></div>
+        <div class="cal" id="jCal"></div></div>
+    </div>
+    <div class="panel"><h2>&#128203; Mis registros del mes</h2><div class="tabla" id="tMisReg"></div></div>
+  </section>
+</main>
+
+<datalist id="dlLocalidades"></datalist>
+<dialog id="dlg"><div class="dlg-cab"><h3 id="dlgT"></h3><button class="btn-sec" id="dlgX" type="button">Cerrar</button></div><div id="dlgB"></div></dialog>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="script.js"></script>
+</body>
+</html>
