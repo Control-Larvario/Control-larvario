@@ -137,10 +137,8 @@
           <label>Localidad<input id="rgLocalidad" list="dlLocalidades" required></label>
           <label>Sector<input id="rgSector" required></label>
           <label>Viviendas monitoreadas<input type="number" min="0" inputmode="numeric" id="rgMon" required></label>
-          <label>Cerradas<input type="number" min="0" inputmode="numeric" id="rgCer" value="0"></label>
-          <label>Deshabitadas<input type="number" min="0" inputmode="numeric" id="rgDes" value="0"></label>
-          <label>Renuentes<input type="number" min="0" inputmode="numeric" id="rgRen" value="0"></label>
-          <label class="r2">Total de viviendas<input type="number" min="0" inputmode="numeric" id="rgTot"><small>Se calcula solo: monitoreadas + cerradas + deshabitadas + renuentes.</small></label>
+          <label>Total de viviendas<input type="number" min="0" inputmode="numeric" id="rgTot"><small>Se llena con las monitoreadas; corr&#237;gelo si el total es mayor.</small></label>
+          <label class="r2">Observaciones<textarea id="rgObs" rows="3" maxlength="500" placeholder="Opcional: comentarios de la intervenci&#243;n"></textarea></label>
           <p class="msg r2" id="rgMsg" role="alert"></p>
           <div class="r2 acciones"><button class="btn-teal" type="submit" id="rgBtn">Guardar registro</button><button class="btn-sec" type="button" id="rgCancelar" hidden>Cancelar edici&#243;n</button></div>
         </form></div>

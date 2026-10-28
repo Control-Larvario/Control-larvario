@@ -14,10 +14,14 @@
 const ADMIN_USUARIO_INICIAL = 'admin';
 const ADMIN_CLAVE_INICIAL   = 'Cambiar2026';   // cámbiala antes de ejecutar "instalar"
 const HORAS_SESION = 12;
+// Plazo para que el jefe de brigada edite o elimine un registro: 24 horas hábiles
+// contadas desde que lo registró. Días hábiles: 1=lunes … 6=sábado, 0=domingo.
+const HORAS_EDICION = 24;
+const DIAS_HABILES = [1, 2, 3, 4, 5, 6];
 
 const H = {
   USUARIOS: ['USUARIO','NOMBRES Y APELLIDOS','DNI','ROL','ACTIVO','SAL','HASH','CREADO'],
-  REGISTROS:['ID','ACTIVIDAD','LOCALIDAD','SECTOR','VIVIENDAS MONITOREADAS','CERRADAS','DESHABITADAS','RENUENTES','TOTAL DE VIVIENDAS','FECHA DE INTERVENCION','JEFE DE BRIGADA','USUARIO','REGISTRADO'],
+  REGISTROS:['ID','ACTIVIDAD','LOCALIDAD','SECTOR','VIVIENDAS MONITOREADAS','CERRADAS','DESHABITADAS','RENUENTES','TOTAL DE VIVIENDAS','FECHA DE INTERVENCION','JEFE DE BRIGADA','USUARIO','REGISTRADO','OBSERVACIONES'],
   METAS:    ['MES','JEFE DE BRIGADA','META'],
   SESIONES: ['TOKEN','USUARIO','EXPIRA']
 };
@@ -32,6 +36,9 @@ function instalar() {
   });
   const sh = ss.getSheetByName('REGISTROS');
   sh.getRange('J:J').setNumberFormat('dd/mm/yyyy');
+  // agrega columnas nuevas si la hoja se creó con una versión anterior
+  Object.keys(H).forEach(n => { const h = ss.getSheetByName(n); const ac = h.getRange(1,1,1,H[n].length).getValues()[0];
+    H[n].forEach((t, i) => { if (!ac[i]) h.getRange(1, i+1).setValue(t).setFontWeight('bold'); }); });
   if (!buscarUsuario_(ADMIN_USUARIO_INICIAL)) crearUsuario_({usuario: ADMIN_USUARIO_INICIAL, nombre: 'ADMINISTRADOR', dni: '', rol: 'ADMIN', clave: ADMIN_CLAVE_INICIAL});
   const hoja1 = ss.getSheetByName('Hoja 1') || ss.getSheetByName('Sheet1');
   if (hoja1 && hoja1.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(hoja1);
@@ -147,7 +154,18 @@ function cambiarClave_(s, p){
 }
 
 /* ===================== Registros ===================== */
-function aObj_(r){ return {id:String(r[0]), actividad:r[1], localidad:r[2], sector:String(r[3]), monitoreadas:num_(r[4]), cerradas:num_(r[5]), deshabitadas:num_(r[6]), renuentes:num_(r[7]), total:num_(r[8]), fecha:fechaTxt_(r[9]), jefe:r[10], usuario:r[11]}; }
+function aObj_(r){ return {id:String(r[0]), actividad:r[1], localidad:r[2], sector:String(r[3]), monitoreadas:num_(r[4]), cerradas:num_(r[5]), deshabitadas:num_(r[6]), renuentes:num_(r[7]), total:num_(r[8]), fecha:fechaTxt_(r[9]), jefe:r[10], usuario:r[11], registrado: r[12] instanceof Date ? r[12].toISOString() : '', observaciones: String(r[13] == null ? '' : r[13])}; }
+// Fecha y hora límite para editar: suma HORAS_EDICION horas saltando los días no hábiles (hora de Lima, UTC-5)
+function limiteEdicion_(creado){
+  const DIA = 86400000, OFF = 5 * 3600000; let t = new Date(creado).getTime() - OFF, falta = HORAS_EDICION * 3600000;
+  if (!isFinite(t)) return 0;
+  for (let k = 0; k < 60 && falta > 0; k++) { const d = Math.floor(t / DIA), fin = (d + 1) * DIA;
+    if (DIAS_HABILES.indexOf((d + 4) % 7) < 0) { t = fin; continue; }
+    const tramo = Math.min(falta, fin - t); t += tramo; falta -= tramo; }
+  return t + OFF;
+}
+function plazoVencido_(fila){ const c = fila[12]; if (!(c instanceof Date)) return true; return Date.now() > limiteEdicion_(c); }
+const MSJ_PLAZO = 'El plazo para editar o eliminar este registro (24 horas hábiles) ya venció. Pide al administrador que lo corrija.';
 function esDueno_(r, s){ return String(r[11]).toLowerCase() === String(s.usuario).toLowerCase() || (!r[11] && norm_(r[10]) === norm_(s.nombre)); }
 function listarRegistros_(s){
   return filas_('REGISTROS').filter(r => r[0] && (!s || esDueno_(r, s))).map(aObj_).filter(o => o.fecha);
@@ -156,7 +174,9 @@ function limpiar_(x){
   const fecha = fechaTxt_(x.fecha); if (!fecha) throw new Error('Fecha de intervención no válida.');
   const mon = num_(x.monitoreadas), cer = num_(x.cerradas), des = num_(x.deshabitadas), ren = num_(x.renuentes);
   const act = norm_(x.actividad).indexOf('MONIT') === 0 ? 'MONITOREO' : 'SUPERVISIÓN';
-  return [act, norm_(x.localidad), String(x.sector == null ? '' : x.sector).trim(), mon, cer, des, ren, x.total === '' || x.total == null ? mon+cer+des+ren : num_(x.total), fechaDate_(fecha)];
+  const tot = x.total === '' || x.total == null ? mon+cer+des+ren : num_(x.total);
+  if (tot < mon) throw new Error('El total de viviendas no puede ser menor que las viviendas monitoreadas.');
+  return [act, norm_(x.localidad), String(x.sector == null ? '' : x.sector).trim(), mon, cer, des, ren, tot, fechaDate_(fecha)];
 }
 function guardarRegistro_(s, x){
   if (!x) return {ok:false, error:'Faltan datos.'};
@@ -164,23 +184,27 @@ function guardarRegistro_(s, x){
   let jefe = s.nombre, usuario = s.usuario;
   if (esAdmin && x.usuario) { const u = buscarUsuario_(x.usuario); if (u) { jefe = u.d[1]; usuario = u.d[0]; } }
   const vals = limpiar_(x);
+  const obs = String(x.observaciones == null ? '' : x.observaciones).trim().slice(0, 500);
   if (x.id) {
     for (let i = 0; i < f.length; i++) if (String(f[i][0]) === String(x.id)) {
       if (!esAdmin && !esDueno_(f[i], s)) return {ok:false, error:'Solo puedes editar tus propios registros.'};
+      if (!esAdmin && plazoVencido_(f[i])) return {ok:false, error: MSJ_PLAZO};
       if (!esAdmin) { jefe = f[i][10]; usuario = f[i][11] || s.usuario; } else if (!x.usuario) { jefe = f[i][10]; usuario = f[i][11]; }
-      sh.getRange(i+2, 1, 1, 13).setValues([[x.id, ...vals, jefe, usuario, new Date()]]);
+      const creado = f[i][12] instanceof Date ? f[i][12] : new Date();
+      sh.getRange(i+2, 1, 1, 14).setValues([[x.id, ...vals, jefe, usuario, creado, obs]]);
       return {ok:true, id:x.id};
     }
     return {ok:false, error:'No se encontró el registro.'};
   }
   const id = 'r-' + Utilities.getUuid().slice(0, 13);
-  sh.appendRow([id, ...vals, jefe, usuario, new Date()]);
+  sh.appendRow([id, ...vals, jefe, usuario, new Date(), obs]);
   return {ok:true, id};
 }
 function borrarRegistro_(s, id){
   const f = filas_('REGISTROS');
   for (let i = 0; i < f.length; i++) if (String(f[i][0]) === String(id)) {
     if (s.rol !== 'ADMIN' && !esDueno_(f[i], s)) return {ok:false, error:'Solo puedes eliminar tus propios registros.'};
+    if (s.rol !== 'ADMIN' && plazoVencido_(f[i])) return {ok:false, error: MSJ_PLAZO};
     hoja_('REGISTROS').deleteRow(i+2); return {ok:true};
   }
   return {ok:false, error:'No se encontró el registro.'};
@@ -190,8 +214,8 @@ function importar_(s, lista){
   const ids = {}; filas_('REGISTROS').forEach(r => ids[String(r[0])] = 1);
   const porNombre = {}; filas_('USUARIOS').forEach(r => porNombre[norm_(r[1])] = r[0]);
   const out = []; const now = new Date();
-  lista.forEach(x => { if (!x.id || ids[x.id]) return; try { const v = limpiar_(x); const j = norm_(x.jefe); out.push([x.id, ...v, j, porNombre[j] || '', now]); ids[x.id] = 1; } catch (e) {} });
-  if (out.length) { const sh = hoja_('REGISTROS'); sh.getRange(sh.getLastRow()+1, 1, out.length, 13).setValues(out); }
+  lista.forEach(x => { if (!x.id || ids[x.id]) return; try { const v = limpiar_(x); const j = norm_(x.jefe); out.push([x.id, ...v, j, porNombre[j] || '', now, String(x.observaciones || '').slice(0, 500)]); ids[x.id] = 1; } catch (e) {} });
+  if (out.length) { const sh = hoja_('REGISTROS'); sh.getRange(sh.getLastRow()+1, 1, out.length, 14).setValues(out); }
   return {ok:true, nuevos: out.length, repetidos: lista.length - out.length};
 }
 
