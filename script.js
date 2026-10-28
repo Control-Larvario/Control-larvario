@@ -49,6 +49,9 @@ function limiteEdicion(creado) {
     const tramo = Math.min(falta, fin - t); t += tramo; falta -= tramo; }
   return t + OFF;
 }
+function horaOk(v) { const m = String(v ?? "").trim().match(/^(\d{1,2}):(\d{2})/); if (m && +m[1] < 24 && +m[2] < 60) return `${pad(+m[1])}:${m[2]}`;
+  if (typeof v === "number" && v >= 0 && v < 1) { const t = Math.round(v * 1440); return `${pad(Math.floor(t / 60))}:${pad(t % 60)}`; } return ""; }
+function duracion(hi, hf) { if (!hi || !hf) return ""; const a = hi.split(":"), b = hf.split(":"); const m = (+b[0] * 60 + +b[1]) - (+a[0] * 60 + +a[1]); if (m <= 0) return ""; return (m >= 60 ? Math.floor(m / 60) + " h " : "") + (m % 60 ? (m % 60) + " min" : "").trim(); }
 function fechaHora(ms) { const d = new Date(ms); return `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
 function hash(s) { let x = 2166136261; for (let i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 16777619); } return (x >>> 0).toString(36); }
 
@@ -78,7 +81,7 @@ const Demo = (() => {
   const load = () => { try { const d = JSON.parse(localStorage.getItem(K)); if (d && d.usuarios) return d; } catch (e) {} return { usuarios: [{ usuario: "admin", nombre: "ADMINISTRADOR", dni: "", rol: "ADMIN", activo: true, clave: "admin123", creado: hoyTxt }], registros: [], metas: [], sesiones: {} }; };
   const save = d => localStorage.setItem(K, JSON.stringify(d));
   const fix = x => { const mon = num(x.monitoreadas), cer = num(x.cerradas), des = num(x.deshabitadas), ren = num(x.renuentes);
-    return { actividad: sinTilde(x.actividad).startsWith("MONIT") ? "MONITOREO" : "SUPERVISI\u00d3N", localidad: normName(x.localidad), sector: String(x.sector ?? "").trim(), monitoreadas: mon, cerradas: cer, deshabitadas: des, renuentes: ren, total: x.total === "" || x.total == null ? mon + cer + des + ren : num(x.total), fecha: x.fecha, observaciones: String(x.observaciones || "").trim().slice(0, 500) }; };
+    return { actividad: sinTilde(x.actividad).startsWith("MONIT") ? "MONITOREO" : "SUPERVISI\u00d3N", localidad: normName(x.localidad), sector: String(x.sector ?? "").trim(), monitoreadas: mon, cerradas: cer, deshabitadas: des, renuentes: ren, total: x.total === "" || x.total == null ? mon + cer + des + ren : num(x.total), fecha: x.fecha, observaciones: String(x.observaciones || "").trim().slice(0, 500), horaInicio: horaOk(x.horaInicio), horaFin: horaOk(x.horaFin) }; };
   const MSJ_PLAZO = "El plazo para editar o eliminar este registro (24 horas h\u00e1biles) ya venci\u00f3. Pide al administrador que lo corrija.";
   async function handle(p) {
     await new Promise(r => setTimeout(r, 60));
@@ -103,6 +106,9 @@ const Demo = (() => {
         const x = p.registro || {}; let jefe = su.nombre, usuario = su.usuario;
         if (admin && x.usuario) { const u = find(x.usuario); if (u) { jefe = u.nombre; usuario = u.usuario; } }
         if (!/^\d{4}-\d{2}-\d{2}$/.test(x.fecha || "")) return { ok: false, error: "Fecha de intervenci\u00f3n no v\u00e1lida." };
+        const hi = horaOk(x.horaInicio), hf = horaOk(x.horaFin);
+        if ((!x.id && (!hi || !hf)) || ((hi || hf) && (!hi || !hf))) return { ok: false, error: "Escribe la hora de inicio y la hora de t\u00e9rmino." };
+        if (hi && hf <= hi) return { ok: false, error: "La hora de t\u00e9rmino debe ser posterior a la hora de inicio." };
         if (x.total !== "" && x.total != null && num(x.total) < num(x.monitoreadas)) return { ok: false, error: "El total de viviendas no puede ser menor que las viviendas monitoreadas." };
         if (x.id) { const r = d.registros.find(z => z.id === x.id); if (!r) return { ok: false, error: "No se encontr\u00f3 el registro." };
           if (!admin && !dueno(r, su)) return { ok: false, error: "Solo puedes editar tus propios registros." };
@@ -253,13 +259,13 @@ function calendario(cont, mes, recs, onDia, sel) {
 function tablaRegistros(recs, opt = {}) {
   if (!recs.length) return `<div class="vacio">${opt.vacio || "Sin registros."}</div>`;
   recs = [...recs].sort((a, b) => a.fecha.localeCompare(b.fecha) || a.jefe.localeCompare(b.jefe));
-  let h = `<table><thead><tr><th>Fecha</th>${opt.jefe ? '<th class="izq">Jefe de brigada</th>' : ""}<th>Actividad</th><th class="izq">Localidad</th><th>Sector</th><th>Monitoreadas</th><th>Cerradas</th><th>Deshabitadas</th><th>Renuentes</th><th>Total</th><th class="izq">Observaciones</th>${opt.editar ? "<th></th>" : ""}</tr></thead><tbody>`;
+  let h = `<table><thead><tr><th>Fecha</th>${opt.jefe ? '<th class="izq">Jefe de brigada</th>' : ""}<th>Actividad</th><th class="izq">Localidad</th><th>Sector</th><th>Monitoreadas</th><th>Cerradas</th><th>Deshabitadas</th><th>Renuentes</th><th>Total</th><th>Horario</th><th class="izq">Observaciones</th>${opt.editar ? "<th></th>" : ""}</tr></thead><tbody>`;
   const admin = YO && YO.rol === "ADMIN", ahora = Date.now();
   const acciones = r => { if (admin) return `<button class="btn-mini" data-ed="${esc(r.id)}" type="button">Editar</button><button class="btn-mini rojo" data-del="${esc(r.id)}" type="button">Eliminar</button>`;
     const lim = limiteEdicion(r.registrado);
     return ahora <= lim ? `<button class="btn-mini" data-ed="${esc(r.id)}" type="button">Editar</button><button class="btn-mini rojo" data-del="${esc(r.id)}" type="button">Eliminar</button><br><small class="plazo">Hasta ${fechaHora(lim)}</small>` : `<span class="tag t-gr" title="Pasaron las 24 horas h\u00e1biles para editar">\ud83d\udd12 Cerrado</span>`; };
-  recs.forEach(r => { h += `<tr><td>${fechaPe(r.fecha)}</td>${opt.jefe ? `<td class="nom">${esc(r.jefe)}</td>` : ""}<td>${actTxt(r.actividad)}</td><td class="izq">${esc(r.localidad)}</td><td>${esc(r.sector)}</td><td><b>${fmt(r.monitoreadas)}</b></td><td>${fmt(r.cerradas)}</td><td>${fmt(r.deshabitadas)}</td><td>${fmt(r.renuentes)}</td><td>${fmt(r.total)}</td><td class="obs">${esc(r.observaciones || "")}</td>${opt.editar ? `<td>${acciones(r)}</td>` : ""}</tr>`; });
-  h += `</tbody><tfoot><tr><td>Total</td>${opt.jefe ? "<td></td>" : ""}<td>${recs.length} reg.</td><td></td><td></td><td>${fmt(sumar(recs, "monitoreadas"))}</td><td>${fmt(sumar(recs, "cerradas"))}</td><td>${fmt(sumar(recs, "deshabitadas"))}</td><td>${fmt(sumar(recs, "renuentes"))}</td><td>${fmt(sumar(recs, "total"))}</td><td></td>${opt.editar ? "<td></td>" : ""}</tr></tfoot></table>`;
+  recs.forEach(r => { h += `<tr><td>${fechaPe(r.fecha)}</td>${opt.jefe ? `<td class="nom">${esc(r.jefe)}</td>` : ""}<td>${actTxt(r.actividad)}</td><td class="izq">${esc(r.localidad)}</td><td>${esc(r.sector)}</td><td><b>${fmt(r.monitoreadas)}</b></td><td>${fmt(r.cerradas)}</td><td>${fmt(r.deshabitadas)}</td><td>${fmt(r.renuentes)}</td><td>${fmt(r.total)}</td><td>${r.horaInicio && r.horaFin ? `${r.horaInicio} \u2013 ${r.horaFin}<br><small class="plazo">${duracion(r.horaInicio, r.horaFin)}</small>` : "\u2014"}</td><td class="obs">${esc(r.observaciones || "")}</td>${opt.editar ? `<td>${acciones(r)}</td>` : ""}</tr>`; });
+  h += `</tbody><tfoot><tr><td>Total</td>${opt.jefe ? "<td></td>" : ""}<td>${recs.length} reg.</td><td></td><td></td><td>${fmt(sumar(recs, "monitoreadas"))}</td><td>${fmt(sumar(recs, "cerradas"))}</td><td>${fmt(sumar(recs, "deshabitadas"))}</td><td>${fmt(sumar(recs, "renuentes"))}</td><td>${fmt(sumar(recs, "total"))}</td><td></td><td></td>${opt.editar ? "<td></td>" : ""}</tr></tfoot></table>`;
   return h;
 }
 function enlazarEdicion(cont) {
@@ -394,8 +400,8 @@ function libro(hojas, nombre) {
   hojas.forEach(([n, aoa]) => { const ws = XLSX.utils.aoa_to_sheet(aoa); ws["!cols"] = (aoa[0] || []).map((_, i) => ({ wch: Math.min(45, Math.max(10, ...aoa.map(r => String(r[i] ?? "").length + 2))) })); XLSX.utils.book_append_sheet(wb, ws, n.slice(0, 31)); });
   XLSX.writeFile(wb, nombre);
 }
-const CAB_REG = ["ACTIVIDAD", "LOCALIDAD", "SECTOR", "VIVIENDAS MONITOREADAS", "CERRADAS", "DESHABITADAS", "RENUENTES", "TOTAL DE VIVIENDAS", "FECHA DE INTERVENCION", "JEFE DE BRIGADA", "OBSERVACIONES"];
-const filaReg = r => [r.actividad, r.localidad, r.sector, r.monitoreadas, r.cerradas, r.deshabitadas, r.renuentes, r.total, fechaPe(r.fecha), r.jefe, r.observaciones || ""];
+const CAB_REG = ["ACTIVIDAD", "LOCALIDAD", "SECTOR", "VIVIENDAS MONITOREADAS", "CERRADAS", "DESHABITADAS", "RENUENTES", "TOTAL DE VIVIENDAS", "FECHA DE INTERVENCION", "JEFE DE BRIGADA", "HORA INICIO", "HORA TERMINO", "OBSERVACIONES"];
+const filaReg = r => [r.actividad, r.localidad, r.sector, r.monitoreadas, r.cerradas, r.deshabitadas, r.renuentes, r.total, fechaPe(r.fecha), r.jefe, r.horaInicio || "", r.horaFin || "", r.observaciones || ""];
 function descargarExcel(tipo) {
   const f = filtros(), recs = filtrar(f), meses = mesesFiltro(f, recs), sello = hoyTxt.replace(/-/g, "");
   const titulo = [`Supervisi\u00f3n y monitoreo de viviendas \u2014 ${f.mes ? mesTxt(f.mes) : f.desde || f.hasta ? `del ${fechaPe(f.desde) || "inicio"} al ${fechaPe(f.hasta) || "\u00faltimo registro"}` : "todos los registros"}`];
@@ -431,7 +437,7 @@ function pintarRegistrosAdmin() {
 const F = {};
 let totalManual = false;
 function enlazarRegistro() {
-  ["Usuario", "Actividad", "Fecha", "Localidad", "Sector", "Mon", "Tot", "Obs"].forEach(k => F[k] = $("#rg" + k));
+  ["Usuario", "Actividad", "Fecha", "Hi", "Hf", "Localidad", "Sector", "Mon", "Tot", "Obs"].forEach(k => F[k] = $("#rg" + k));
   F.Fecha.value = hoyTxt; F.Fecha.max = hoyTxt;
   F.Tot.oninput = () => totalManual = F.Tot.value !== "";
   F.Mon.oninput = () => { if (!totalManual) F.Tot.value = F.Mon.value; };
@@ -465,7 +471,7 @@ function pintarRegistrar() {
 function limpiarForm(conservar) {
   ST.editId = null; totalManual = false;
   $("#frmTitulo").textContent = "\ud83d\udcdd Registrar intervenci\u00f3n"; $("#rgBtn").textContent = "Guardar registro"; $("#rgCancelar").hidden = true;
-  F.Mon.value = ""; F.Tot.value = ""; F.Obs.value = "";
+  F.Mon.value = ""; F.Tot.value = ""; F.Obs.value = ""; F.Hi.value = ""; F.Hf.value = "";
   if (!conservar) { F.Localidad.value = ""; F.Sector.value = ""; F.Fecha.value = hoyTxt; F.Actividad.value = "SUPERVISI\u00d3N"; }
 }
 async function guardarRegistro(e) {
@@ -473,10 +479,14 @@ async function guardarRegistro(e) {
   if (YO.rol === "ADMIN" && !F.Usuario.value && !ST.editId) { msg.textContent = "Elige el jefe de brigada."; return F.Usuario.focus(); }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(F.Fecha.value)) { msg.textContent = "Elige la fecha de intervenci\u00f3n."; return F.Fecha.focus(); }
   if (F.Fecha.value > hoyTxt) { msg.textContent = "La fecha no puede ser posterior a hoy."; return F.Fecha.focus(); }
+  if (!F.Hi.value) { msg.textContent = "Escribe la hora de inicio."; return F.Hi.focus(); }
+  if (!F.Hf.value) { msg.textContent = "Escribe la hora de t\u00e9rmino."; return F.Hf.focus(); }
+  if (F.Hf.value <= F.Hi.value) { msg.textContent = "La hora de t\u00e9rmino debe ser posterior a la hora de inicio."; return F.Hf.focus(); }
+  { const n = new Date(); const ahora = `${pad(n.getHours())}:${pad(n.getMinutes())}`; if (F.Fecha.value === hoyTxt && F.Hf.value > ahora) { msg.textContent = "La hora de t\u00e9rmino no puede ser posterior a la hora actual."; return F.Hf.focus(); } }
   if (F.Mon.value === "") { msg.textContent = "Escribe las viviendas monitoreadas."; return F.Mon.focus(); }
   if (F.Tot.value !== "" && num(F.Tot.value) < num(F.Mon.value)) { msg.textContent = "El total de viviendas no puede ser menor que las viviendas monitoreadas."; return F.Tot.focus(); }
   const reg = { id: ST.editId || "", usuario: YO.rol === "ADMIN" ? F.Usuario.value : "", actividad: F.Actividad.value, fecha: F.Fecha.value, localidad: normName(F.Localidad.value), sector: F.Sector.value.trim(),
-    monitoreadas: num(F.Mon.value), cerradas: 0, deshabitadas: 0, renuentes: 0, total: F.Tot.value === "" ? "" : num(F.Tot.value), observaciones: F.Obs.value.trim() };
+    monitoreadas: num(F.Mon.value), cerradas: 0, deshabitadas: 0, renuentes: 0, total: F.Tot.value === "" ? "" : num(F.Tot.value), observaciones: F.Obs.value.trim(), horaInicio: F.Hi.value, horaFin: F.Hf.value };
   if (ST.editId) { const o = REC.find(x => x.id === ST.editId); if (o) Object.assign(reg, { cerradas: o.cerradas, deshabitadas: o.deshabitadas, renuentes: o.renuentes }); }
   const b = $("#rgBtn"); b.disabled = true;
   try { const r = await api("saveRecord", { registro: reg }); if (!r.ok) { msg.textContent = r.error; b.disabled = false; return; }
@@ -492,7 +502,7 @@ function editarRegistro(id) {
   ST.editId = id; totalManual = true;
   if (YO.rol === "ADMIN") { const u = USERS.find(x => normName(x.nombre) === r.jefe); F.Usuario.value = u ? u.usuario : ""; }
   F.Actividad.value = r.actividad === "MONITOREO" ? "MONITOREO" : "SUPERVISI\u00d3N"; F.Fecha.value = r.fecha; F.Localidad.value = r.localidad; F.Sector.value = r.sector;
-  F.Mon.value = r.monitoreadas; F.Tot.value = r.total; F.Obs.value = r.observaciones || "";
+  F.Mon.value = r.monitoreadas; F.Tot.value = r.total; F.Obs.value = r.observaciones || ""; F.Hi.value = r.horaInicio || ""; F.Hf.value = r.horaFin || "";
   $("#frmTitulo").textContent = `\u270f\ufe0f Editar registro del ${fechaPe(r.fecha)}${YO.rol === "ADMIN" ? " \u2014 " + r.jefe : ""}`; $("#rgBtn").textContent = "Guardar cambios"; $("#rgCancelar").hidden = false;
   ST.jcMes = r.mes; pintarRegistrar(); window.scrollTo({ top: 0, behavior: "smooth" }); F.Mon.focus();
 }
@@ -564,11 +574,11 @@ function parseFecha(v) {
 function filasARegistros(rows) {
   const out = [], visto = {}; let omitidas = 0, hi = -1, c = {};
   for (let i = 0; i < Math.min(15, rows.length); i++) { const hd = (rows[i] || []).map(sinTilde); const b = k => hd.findIndex(x => k.some(t => x.includes(t)));
-    if (b(["JEFE", "INSPECTOR"]) >= 0 && b(["FECHA"]) >= 0) { hi = i; c = { act: b(["ACTIVIDAD"]), loc: b(["LOCALIDAD"]), sec: b(["SECTOR"]), mon: b(["MONITOREADAS", "INSPECCIONADAS"]), cer: b(["CERRADAS"]), des: b(["DESHABITADAS"]), ren: b(["RENUENTES"]), tot: b(["TOTAL"]), obs: b(["OBSERVACION"]), fec: b(["FECHA"]), jef: b(["JEFE", "INSPECTOR"]) }; break; } }
+    if (b(["JEFE", "INSPECTOR"]) >= 0 && b(["FECHA"]) >= 0) { hi = i; c = { act: b(["ACTIVIDAD"]), loc: b(["LOCALIDAD"]), sec: b(["SECTOR"]), mon: b(["MONITOREADAS", "INSPECCIONADAS"]), cer: b(["CERRADAS"]), des: b(["DESHABITADAS"]), ren: b(["RENUENTES"]), tot: b(["TOTAL"]), obs: b(["OBSERVACION"]), hi: b(["HORA INICIO", "HORA DE INICIO"]), hf: b(["HORA TERMINO", "HORA DE TERMINO", "HORA FIN"]), fec: b(["FECHA"]), jef: b(["JEFE", "INSPECTOR"]) }; break; } }
   if (hi < 0) return { out, omitidas };
   for (let i = hi + 1; i < rows.length; i++) { const r = rows[i] || []; const jefe = normName(r[c.jef]), fecha = parseFecha(r[c.fec]); if (jefe && !fecha) omitidas++; if (!jefe || !fecha) continue;
     const g = k => c[k] >= 0 ? num(r[c[k]]) : 0; const mon = g("mon"), cer = g("cer"), des = g("des"), ren = g("ren"); const tr = c.tot >= 0 ? r[c.tot] : null;
-    const x = { actividad: sinTilde(c.act >= 0 ? r[c.act] : "").startsWith("MONIT") ? "MONITOREO" : "SUPERVISI\u00d3N", localidad: c.loc >= 0 ? normName(r[c.loc]) : "", sector: c.sec >= 0 && r[c.sec] != null ? String(r[c.sec]).trim() : "", monitoreadas: mon, cerradas: cer, deshabitadas: des, renuentes: ren, total: tr == null || tr === "" ? mon + cer + des + ren : num(tr), fecha, jefe, observaciones: c.obs >= 0 && r[c.obs] != null ? String(r[c.obs]).trim().slice(0, 500) : "" };
+    const x = { actividad: sinTilde(c.act >= 0 ? r[c.act] : "").startsWith("MONIT") ? "MONITOREO" : "SUPERVISI\u00d3N", localidad: c.loc >= 0 ? normName(r[c.loc]) : "", sector: c.sec >= 0 && r[c.sec] != null ? String(r[c.sec]).trim() : "", monitoreadas: mon, cerradas: cer, deshabitadas: des, renuentes: ren, total: tr == null || tr === "" ? mon + cer + des + ren : num(tr), fecha, jefe, observaciones: c.obs >= 0 && r[c.obs] != null ? String(r[c.obs]).trim().slice(0, 500) : "", horaInicio: c.hi >= 0 ? horaOk(r[c.hi]) : "", horaFin: c.hf >= 0 ? horaOk(r[c.hf]) : "" };
     const key = [x.fecha, x.jefe, x.actividad, x.localidad, x.sector, mon, cer, des, ren, x.total].join("|"); visto[key] = (visto[key] || 0) + 1; x.id = `x-${hash(key)}-${visto[key]}`; out.push(x); }
   return { out, omitidas };
 }
