@@ -15,7 +15,9 @@ const CONFIG = {
   // Plazo para que el jefe de brigada edite o elimine su registro (debe coincidir con Codigo.gs)
   HORAS_EDICION: 24,
   DIAS_HABILES: [1, 2, 3, 4, 5, 6],
-  TOP_RANKING: 10
+  TOP_RANKING: 10,
+  // Sigla que va despu\u00e9s del correlativo del informe: INFORME N\u00b0 015-2026-UNGET
+  INF_SIGLA: "UNGET"
 };
 
 (function () {
@@ -136,7 +138,9 @@ const Demo = (() => {
           Object.assign(r, c.o, { jefe, usuario }); save(d); return { ok: true, id: x.id }; }
         if (x.cid && d.informes.some(z => z.id === x.cid)) return { ok: true, id: x.cid, repetido: true };
         const id = x.cid || "i-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-        d.informes.push(Object.assign({ id }, c.o, { jefe, usuario, registrado: new Date().toISOString() })); save(d); return { ok: true, id }; }
+        const an = c.o.fecha.slice(0, 4), mx = Math.max(0, ...d.informes.map(z => { const m = String(z.numero || "").match(/^(\d+)-(\d{4})$/); return m && m[2] === an ? +m[1] : 0; }));
+        const numero = String(mx + 1).padStart(3, "0") + "-" + an;
+        d.informes.push(Object.assign({ id }, c.o, { jefe, usuario, numero, registrado: new Date().toISOString() })); save(d); return { ok: true, id, numero }; }
       case "deleteInforme": { d.informes = d.informes || []; const i = d.informes.findIndex(z => z.id === p.id); if (i < 0) return { ok: false, error: "No se encontr\u00f3 el informe." };
         if (!admin && d.informes[i].usuario !== su.usuario) return { ok: false, error: "Solo puedes eliminar tus propios informes." };
         if (!admin && Date.now() > limiteEdicion(d.informes[i].registrado)) return { ok: false, error: MSJ_PLAZO_INF };
@@ -663,6 +667,7 @@ let INF = [];
 const SI = { editId: null, nuevo: false, error: "", lista: [] };
 const FI = {};
 const CAMPOS_INF = [["A", "a"], ["De", "de"], ["Asunto", "asunto"], ["Fecha", "fecha"], ["FechaInsp", "fechaInsp"], ["Hora", "hora"], ["Direccion", "direccion"], ["Sector", "sector"], ["Mza", "mza"], ["Ov", "ov"], ["Eess", "establecimiento"], ["Distrito", "distrito"], ["Prop", "propietario"], ["Insp", "inspector"]];
+const numInf = i => i && i.numero ? `${i.numero}-${CONFIG.INF_SIGLA}` : "S/N";
 const fechaLarga = f => f ? [String(+f.slice(8)), MESES[+f.slice(5, 7) - 1].toLowerCase(), f.slice(0, 4)] : ["", "", ""];
 
 // Limpia y valida un informe (lo usan el formulario y el modo demostraci\u00f3n)
@@ -688,7 +693,9 @@ const IH_CSS = `
 .ih-logo{display:flex;align-items:center;gap:10px;font-size:10px;font-weight:700;color:#333;margin-bottom:16px;line-height:1.3}
 .ih-logo img{height:44px}
 .ih-logo small{font-weight:400;font-size:9px}
-.ih h1{font-size:15px;text-align:center;text-decoration:underline;margin:6px 0 24px;letter-spacing:.01em}
+.ih h1{font-size:15px;text-align:center;text-decoration:underline;margin:6px 0 8px;letter-spacing:.01em}
+.ih-num{text-align:right;font-weight:700;font-size:13px;margin:0 0 20px}
+.ih-num span{color:#1e3a8a;border-bottom:1px dotted #444;padding:0 6px}
 .ih-cab{border-collapse:collapse;width:100%;margin-bottom:20px}
 .ih-cab th{text-align:left;width:120px;padding:8px 0 8px 34px;font-weight:700;vertical-align:bottom}
 .ih-cab td{padding:8px 0;vertical-align:bottom}
@@ -901,7 +908,7 @@ async function guardarInforme(e) {
     const era = !!SI.editId; await cargarInformes();
     if (admin) { SI.nuevo = false; limpiarFormInf(false); } else limpiarFormInf(true);
     pintarInformes();
-    msg.className = "msg ok"; msg.textContent = era ? "Informe actualizado." : "Informe guardado."; toast(era ? "Informe actualizado" : "Informe guardado");
+    const nn = r.numero ? ` N\u00b0 ${r.numero}-${CONFIG.INF_SIGLA}` : ""; msg.className = "msg ok"; msg.textContent = era ? `Informe${nn} actualizado.` : `Informe${nn} guardado.`; toast(era ? `Informe${nn} actualizado` : `Informe${nn} guardado`);
   } catch (err) { if (nuevo) enCola(); else msg.textContent = "No hay conexi\u00f3n con el servidor. Los cambios no se guardaron; int\u00e9ntalo de nuevo."; }
   b.disabled = false;
 }
@@ -944,7 +951,7 @@ function pintarInformes() {
     opciones($("#iMes"), meses, mesTxt); opciones($("#iJefe"), uniq("jefe")); opciones($("#iInsp"), uniq("inspector")); opciones($("#iFEess"), uniq("establecimiento"));
     const f = { mes: $("#iMes").value, desde: $("#iDesde").value, hasta: $("#iHasta").value, jefe: $("#iJefe").value, insp: $("#iInsp").value, eess: $("#iFEess").value, q: sinTilde($("#iBuscar").value) };
     lista = INF.filter(i => (!f.mes || i.mes === f.mes) && (!f.desde || i.fecha >= f.desde) && (!f.hasta || i.fecha <= f.hasta) && (!f.jefe || i.jefe === f.jefe) && (!f.insp || i.inspector === f.insp) && (!f.eess || i.establecimiento === f.eess) &&
-      (!f.q || sinTilde([i.a, i.de, i.asunto, i.direccion, i.propietario, i.inspector, i.establecimiento, i.distrito, i.jefe, ...i.observaciones].join(" ")).includes(f.q)));
+      (!f.q || sinTilde([numInf(i), i.a, i.de, i.asunto, i.direccion, i.propietario, i.inspector, i.establecimiento, i.distrito, i.jefe, ...i.observaciones].join(" ")).includes(f.q)));
     const nObs = lista.reduce((a, i) => a + i.observaciones.length, 0);
     $("#iKpis").innerHTML = [["Informes", fmt(lista.length), "\ud83d\udcc4", "#0e8a9b", "Registrados"], ["Inspectores", fmt(new Set(lista.map(i => i.inspector)).size), "\ud83e\uddd1\u200d\ud83d\udd27", "#e11d48", "Con informe"], ["Jefes de brigada", fmt(new Set(lista.map(i => i.jefe)).size), "\ud83d\udc77", "#4338ca", "Que informaron"], ["Observaciones", fmt(nObs), "\ud83d\udd0e", "#f97316", "En total"]]
       .map(([t, v, ic, c, s]) => `<div class="kpi"><span class="ic" style="background:${c}">${ic}</span><div><div class="t">${t}</div><div class="v">${v}</div><div class="s" style="color:${c}">${s}</div></div></div>`).join("");
@@ -974,7 +981,7 @@ function tablaInformes(l, admin) {
     return h + (ahora <= lim ? `<br><button class="btn-mini" type="button" data-ied="${esc(i.id)}">Editar</button><button class="btn-mini rojo" type="button" data-idel="${esc(i.id)}">Eliminar</button><br><small class="plazo">Hasta ${fechaHora(lim)}</small>` : `<br><span class="tag t-gr" title="Pasaron las 24 horas h\u00e1biles para editar">\ud83d\udd12 Cerrado</span>`); };
   const ubic = i => [i.sector && `Sector ${i.sector}`, i.mza && `Mza ${i.mza}`, i.ov && `Ov ${i.ov}`].filter(Boolean).join(" \u00b7 ");
   return `<table><thead><tr><th>N\u00b0</th><th>Fecha informe</th>${admin ? '<th class="izq">Jefe de brigada</th>' : ""}<th class="izq">Inspector</th><th>Inspecci\u00f3n</th><th class="izq">Vivienda / lote</th><th class="izq">Establecimiento \u00b7 distrito</th><th class="izq">Propietario</th><th class="izq">Se observa</th><th></th></tr></thead><tbody>${ordenInf(l).map((i, n) =>
-    `<tr><td>${n + 1}</td><td>${fechaPe(i.fecha)}</td>${admin ? `<td class="nom">${esc(i.jefe)}</td>` : ""}<td class="nom">${esc(i.inspector)}</td><td>${fechaPe(i.fechaInsp)}<br><small class="plazo">${esc(i.hora)}</small></td><td class="izq">${esc(i.direccion)}${ubic(i) ? `<br><small class="plazo">${esc(ubic(i))}</small>` : ""}</td><td class="izq">${esc(i.establecimiento)}<br><small class="plazo">${esc(i.distrito)}</small></td><td class="izq">${esc(i.propietario || "\u2014")}</td><td class="obs"><b>${i.observaciones.length}</b> \u00b7 ${esc((i.observaciones[0] || "").slice(0, 90))}${(i.observaciones[0] || "").length > 90 ? "\u2026" : ""}</td><td class="inf-acc">${acc(i)}</td></tr>`).join("")}</tbody></table>`;
+    `<tr><td class="nom" style="white-space:nowrap">${i.pend ? '<small class="plazo">S/N</small>' : esc(numInf(i))}</td><td>${fechaPe(i.fecha)}</td>${admin ? `<td class="nom">${esc(i.jefe)}</td>` : ""}<td class="nom">${esc(i.inspector)}</td><td>${fechaPe(i.fechaInsp)}<br><small class="plazo">${esc(i.hora)}</small></td><td class="izq">${esc(i.direccion)}${ubic(i) ? `<br><small class="plazo">${esc(ubic(i))}</small>` : ""}</td><td class="izq">${esc(i.establecimiento)}<br><small class="plazo">${esc(i.distrito)}</small></td><td class="izq">${esc(i.propietario || "\u2014")}</td><td class="obs"><b>${i.observaciones.length}</b> \u00b7 ${esc((i.observaciones[0] || "").slice(0, 90))}${(i.observaciones[0] || "").length > 90 ? "\u2026" : ""}</td><td class="inf-acc">${acc(i)}</td></tr>`).join("")}</tbody></table>`;
 }
 
 /* ---------- hoja del informe (igual al formato f\u00edsico) ---------- */
@@ -987,6 +994,7 @@ function hojaInforme(i) {
   return `<div class="ih">
     <div class="ih-logo"><img src="${logo}" alt="" onerror="this.remove()"><span>DIRECCI\u00d3N REGIONAL DE SALUD SAN MART\u00cdN<br><small>UNIDAD DE GESTI\u00d3N DE ENFERMEDADES TRANSMISIBLES</small></span></div>
     <h1>INFORME DE ACTIVIDADES DE VIGILANCIA Y CONTROL VECTORIAL - ARBOVIROSIS</h1>
+    <div class="ih-num">INFORME N\u00b0 <span>${esc(numInf(i))}</span></div>
     <table class="ih-cab">
       <tr><th>A</th><td class="p">:</td><td>${v(i.a, "l")}</td></tr>
       <tr><th>DE</th><td class="p">:</td><td>${v(i.de, "l")}</td></tr>
@@ -1001,14 +1009,14 @@ function hojaInforme(i) {
 }
 function verInforme(i, previa) {
   if (!i) return;
-  $("#dlgT").textContent = previa ? "Vista previa del informe" : `Informe del ${fechaPe(i.fecha)} \u2014 ${i.inspector}`;
+  $("#dlgT").textContent = previa ? "Vista previa del informe" : `Informe N\u00b0 ${numInf(i)} \u2014 ${i.inspector}`;
   $("#dlgB").innerHTML = `<div class="inf-dlgbar"><button class="btn-azul" type="button" id="iDlgPrint">\ud83d\udda8\ufe0f Imprimir / guardar PDF</button></div><div class="inf-papel">${hojaInforme(i)}</div>`;
   $("#iDlgPrint").onclick = () => imprimirInformes([i]);
   $("#dlg").showModal();
 }
 function imprimirInformes(lista) {
   const w = window.open("", "_blank"); if (!w) return toast("Permite las ventanas emergentes para imprimir");
-  const tit = lista.length === 1 ? `Informe_${(lista[0].inspector || "").replace(/\s+/g, "_")}_${lista[0].fecha || ""}` : `Informes_${hoyTxt}`;
+  const tit = lista.length === 1 ? `Informe_${numInf(lista[0]).replace(/[^A-Za-z0-9-]+/g, "_")}_${(lista[0].inspector || "").replace(/\s+/g, "_")}` : `Informes_${hoyTxt}`;
   w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${esc(tit)}</title><style>${IH_CSS}
     body{margin:0;background:#e5e7eb}
     .hoja{background:#fff;width:210mm;min-height:297mm;margin:10mm auto;padding:16mm 20mm;box-sizing:border-box;box-shadow:0 2px 12px rgba(0,0,0,.15)}
@@ -1019,8 +1027,8 @@ function imprimirInformes(lista) {
 }
 function excelInformes() {
   const l = ordenInf(SI.lista); if (!l.length) return toast("No hay informes con estos filtros");
-  libro([["Informes", [["FECHA INFORME", "A", "DE", "ASUNTO (SITUACI\u00d3N ENCONTRADA EN)", "FECHA INSPECCI\u00d3N", "HORA", "JR./AV./PSJE.", "SECTOR", "MZA", "OV", "ESTABLECIMIENTO DE SALUD", "DISTRITO", "PROPIETARIO", "INSPECTOR", "N\u00b0 OBSERVACIONES", "SE OBSERVA", "JEFE DE BRIGADA"],
-    ...l.map(i => [fechaPe(i.fecha), i.a, i.de, i.asunto, fechaPe(i.fechaInsp), i.hora, i.direccion, i.sector, i.mza, i.ov, i.establecimiento, i.distrito, i.propietario, i.inspector, i.observaciones.length, i.observaciones.map((o, n) => `${n + 1}. ${o}`).join("  "), i.jefe])]]], `Informes_inspectores_${hoyTxt.replace(/-/g, "")}.xlsx`);
+  libro([["Informes", [["N\u00b0 INFORME", "FECHA INFORME", "A", "DE", "ASUNTO (SITUACI\u00d3N ENCONTRADA EN)", "FECHA INSPECCI\u00d3N", "HORA", "JR./AV./PSJE.", "SECTOR", "MZA", "OV", "ESTABLECIMIENTO DE SALUD", "DISTRITO", "PROPIETARIO", "INSPECTOR", "N\u00b0 OBSERVACIONES", "SE OBSERVA", "JEFE DE BRIGADA"],
+    ...l.map(i => [numInf(i), fechaPe(i.fecha), i.a, i.de, i.asunto, fechaPe(i.fechaInsp), i.hora, i.direccion, i.sector, i.mza, i.ov, i.establecimiento, i.distrito, i.propietario, i.inspector, i.observaciones.length, i.observaciones.map((o, n) => `${n + 1}. ${o}`).join("  "), i.jefe])]]], `Informes_inspectores_${hoyTxt.replace(/-/g, "")}.xlsx`);
 }
 
 
