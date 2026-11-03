@@ -686,6 +686,8 @@ const INF_CSS = `
 .inf-form input:focus,.inf-form textarea:focus,.inf-form select:focus{outline:2px solid #0e8a9b;outline-offset:0;border-color:#0e8a9b}
 .inf-form .w2{grid-column:span 2}
 .inf-form .w3{grid-column:1/-1}
+.inf-g3{grid-template-columns:2fr 2fr 1fr}
+@media(max-width:760px){.inf-g3{grid-template-columns:1fr}}
 @media(max-width:640px){.inf-form .w2{grid-column:auto}}
 .inf-sec{margin:18px 0 4px;font-size:.74rem;font-weight:800;letter-spacing:.07em;color:#0e8a9b;text-transform:uppercase;border-bottom:2px solid #dff1f3;padding-bottom:5px}
 .inf-pre{display:flex;align-items:center;gap:8px}
@@ -738,12 +740,12 @@ function montarInformes() {
     <p class="sub">Llena los datos en el mismo orden del formato f\u00edsico \u00abInforme de actividades de vigilancia y control vectorial \u2013 arbovirosis\u00bb.</p>
     <form id="frmInf" class="inf-form" autocomplete="off">
       <div class="inf-grid" id="iLblJefe" hidden><label class="w2">Jefe de brigada que informa<select id="iUsuario"></select></label></div>
-      <div class="inf-sec">Encabezado</div>
-      <div class="inf-grid">
-        <label class="w2">A<input id="iA" list="dlInfA" placeholder="Nombre y cargo del destinatario" required></label>
-        <label class="w2">DE<input id="iDe" placeholder="Jefe de brigada que informa" required></label>
-        <label class="w3">Asunto<span class="inf-pre"><span>Situaci\u00f3n encontrada en</span><input id="iAsunto" placeholder="vivienda / lote, localidad\u2026" required></span></label>
+      <div class="inf-sec">Datos del informe</div>
+      <div class="inf-grid inf-g3">
+        <label>A<input id="iA" list="dlInfA" placeholder="Nombre y cargo del destinatario" required></label>
+        <label>DE<input id="iDe" placeholder="Jefe de brigada que informa" required></label>
         <label>Fecha del informe<input type="date" id="iFecha" required></label>
+        <label class="w3">Asunto<span class="inf-pre"><span>Situaci\u00f3n encontrada en</span><input id="iAsunto" placeholder="vivienda / lote, localidad\u2026" required></span></label>
       </div>
       <div class="inf-sec">Datos de la inspecci\u00f3n</div>
       <div class="inf-grid">
