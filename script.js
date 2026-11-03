@@ -64,8 +64,10 @@ async function api(action, data = {}) {
   const payload = Object.assign({ action, token: localStorage.getItem(TK) || "" }, data);
   let res;
   if (CONFIG.API_URL) {
-    const r = await fetch(CONFIG.API_URL, { method: "POST", body: JSON.stringify(payload) });
-    res = await r.json();
+    const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const to = ctl ? setTimeout(() => ctl.abort(), action === "me" ? 15000 : 30000) : 0;
+    try { const r = await fetch(CONFIG.API_URL, { method: "POST", body: JSON.stringify(payload), signal: ctl ? ctl.signal : undefined }); res = await r.json(); }
+    finally { clearTimeout(to); }
   } else {
     res = await Demo.handle(JSON.parse(JSON.stringify(payload)));
   }
@@ -116,7 +118,8 @@ const Demo = (() => {
           if (!admin && Date.now() > limiteEdicion(r.registrado)) return { ok: false, error: MSJ_PLAZO };
           if (!admin || !x.usuario) { jefe = r.jefe; usuario = r.usuario || (admin ? "" : su.usuario); }
           Object.assign(r, fix(x), { jefe, usuario }); save(d); return { ok: true, id: x.id }; }
-        const id = "r-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        if (x.cid && d.registros.some(z => z.id === x.cid)) return { ok: true, id: x.cid, repetido: true };
+        const id = x.cid || "r-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
         d.registros.push(Object.assign({ id }, fix(x), { jefe, usuario, registrado: new Date().toISOString() })); save(d); return { ok: true, id };
       }
       case "deleteRecord": { const i = d.registros.findIndex(z => z.id === p.id); if (i < 0) return { ok: false, error: "No se encontr\u00f3 el registro." };
@@ -131,7 +134,8 @@ const Demo = (() => {
           if (!admin && Date.now() > limiteEdicion(r.registrado)) return { ok: false, error: MSJ_PLAZO_INF };
           if (!admin || !x.usuario) { jefe = r.jefe; usuario = r.usuario; }
           Object.assign(r, c.o, { jefe, usuario }); save(d); return { ok: true, id: x.id }; }
-        const id = "i-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        if (x.cid && d.informes.some(z => z.id === x.cid)) return { ok: true, id: x.cid, repetido: true };
+        const id = x.cid || "i-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
         d.informes.push(Object.assign({ id }, c.o, { jefe, usuario, registrado: new Date().toISOString() })); save(d); return { ok: true, id }; }
       case "deleteInforme": { d.informes = d.informes || []; const i = d.informes.findIndex(z => z.id === p.id); if (i < 0) return { ok: false, error: "No se encontr\u00f3 el informe." };
         if (!admin && d.informes[i].usuario !== su.usuario) return { ok: false, error: "Solo puedes eliminar tus propios informes." };
@@ -169,7 +173,7 @@ function iniciarPortada() {
   const frm = $("#frmLogin"), btn = $("#btnIngresar");
   const abrir = () => { btn.hidden = true; $("#mods").hidden = true; frm.hidden = false; $("#lgUsuario").focus(); };
   btn.onclick = async () => {
-    if (localStorage.getItem(TK)) { try { const r = await api("me"); if (r.ok) { location.href = "dashboard.html"; return; } } catch (e) {} }
+    if (localStorage.getItem(TK)) { try { const r = await api("me"); if (r.ok) { location.href = "dashboard.html"; return; } } catch (e) { if (localStorage.getItem(US)) { location.href = "dashboard.html"; return; } } }
     abrir();
   };
   $("#lgVolver").onclick = () => { frm.hidden = true; btn.hidden = false; $("#mods").hidden = false; };
@@ -198,37 +202,61 @@ async function iniciarDashboard() {
   $("#tituloSistema").textContent = CONFIG.TITULO;
   if (!localStorage.getItem(TK)) { location.href = "index.html"; return; }
   let me;
-  try { me = await api("me"); } catch (e) { aviso("No hay conexi\u00f3n con el servidor. Revisa tu internet y recarga la p\u00e1gina.", true); $("#cargando").textContent = ""; return; }
+  try { me = await api("me"); } catch (e) {
+    let u = null; try { u = JSON.parse(localStorage.getItem(US) || "null"); } catch (x) {}
+    if (!u || !u.usuario) { aviso("No hay conexi\u00f3n con el servidor. Revisa tu internet y recarga la p\u00e1gina.", true); $("#cargando").textContent = ""; return; }
+    me = Object.assign({ ok: true, sinSenal: true }, u);
+  }
   if (!me.ok) { location.href = "index.html"; return; }
   YO = me;
+  const libs = YO.rol === "ADMIN" ? cargarLib("chart") : null;
+  if (YO.rol === "ADMIN") cargarLib("xlsx");
+  { const c = document.createElement("div"); c.id = "colaAviso"; $("#aviso").after(c); }
   $("#quien").innerHTML = `${esc(YO.nombre)} <small>\u00b7 ${YO.rol === "ADMIN" ? "Administrador" : "Jefe de brigada"}</small>`;
   if (!CONFIG.API_URL) aviso("Modo demostraci\u00f3n: los datos se guardan solo en este navegador. Para usarlo con los jefes de brigada, configura API_URL en script.js.");
   const tabs = YO.rol === "ADMIN" ? TABS_ADMIN : TABS_JEFE;
   $("#tabs").innerHTML = tabs.map(([k, t]) => `<a href="#${k}" data-t="${k}">${t}</a>`).join("");
   $$("#tabs a").forEach(a => a.onclick = e => { e.preventDefault(); ir(a.dataset.t); history.replaceState(null, "", "#" + a.dataset.t); });
-  $("#btnSalir").onclick = async () => { try { await api("logout"); } catch (e) {} localStorage.removeItem(TK); localStorage.removeItem(US); location.href = "index.html"; };
+  $("#btnSalir").onclick = async () => { const n = COLA.get().length; if (n && !confirm(`Tienes ${n} pendiente(s) sin enviar en este celular. Se enviar\u00e1n cuando vuelvas a ingresar con tu usuario. \u00bfCerrar sesi\u00f3n de todos modos?`)) return; try { await api("logout"); } catch (e) {} localStorage.removeItem(TK); localStorage.removeItem(US); location.href = "index.html"; };
   $("#btnClave").onclick = dialogoClave;
   montarInformes(); enlazarRegistro(); if (YO.rol === "ADMIN") enlazarAdmin();
   await cargarTodo();
+  if (libs) await libs;
   $("#cargando").remove();
   const h = location.hash.slice(1);
   ir(tabs.some(t => t[0] === h) ? h : tabs[0][0]);
+  window.addEventListener("online", () => sincronizar());
+  setInterval(() => { if (COLA.get().length && navigator.onLine !== false) sincronizar(); }, 60000);
+  sincronizar();
 }
 function aviso(t, err) { $("#aviso").innerHTML = `<div class="banner${err ? " err" : ""}">${esc(t)}</div>`; }
 
 async function cargarTodo() {
+  const jefe = YO.rol !== "ADMIN", kc = "ssm_datos_" + YO.usuario, eraSin = ST.sinSenal;
+  let datos = null, desde = 0;
   try {
-    const [r, m, u] = await Promise.all([api("listRecords"), api("listMetas"), YO.rol === "ADMIN" ? api("listUsers") : Promise.resolve({ ok: true, usuarios: [] })]);
+    const [r, m, u] = await Promise.all([api("listRecords"), api("listMetas"), jefe ? Promise.resolve({ ok: true, usuarios: [] }) : api("listUsers")]);
     if (!r.ok || !m.ok || !u.ok) throw new Error((r.error || m.error || u.error) || "Error");
-    REC = r.registros.map(x => Object.assign({}, x, { jefe: normName(x.jefe), mes: x.fecha.slice(0, 7) })).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x.fecha));
-    METAS = m.metas.map(x => Object.assign({}, x, { jefe: normName(x.jefe) }));
-    USERS = u.usuarios || [];
-    const d = new Date();
+    datos = { r: r.registros, m: m.metas, u: u.usuarios || [] }; ST.sinSenal = false;
+    if (jefe) { try { localStorage.setItem(kc, JSON.stringify({ r: datos.r, m: datos.m, t: Date.now() })); } catch (x) {} }
+    if (eraSin) $("#aviso").innerHTML = "";
+  } catch (e) {
+    let c = null; if (jefe) { try { c = JSON.parse(localStorage.getItem(kc) || "null"); } catch (x) {} }
+    if (c) { datos = { r: c.r || [], m: c.m || [], u: [] }; desde = c.t; ST.sinSenal = true;
+      aviso(`\ud83d\udcf6 Sin conexi\u00f3n: se muestran tus datos guardados el ${fechaHora(c.t)}. Puedes seguir registrando; lo nuevo se enviar\u00e1 solo cuando haya se\u00f1al.`); }
+    else aviso("No se pudieron cargar los datos: " + (e.message || e) + ". Recarga la p\u00e1gina.", true);
+  }
+  if (datos) {
+    REC = datos.r.map(x => Object.assign({}, x, { jefe: normName(x.jefe), mes: x.fecha.slice(0, 7) })).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x.fecha));
+    METAS = datos.m.map(x => Object.assign({}, x, { jefe: normName(x.jefe) }));
+    if (!jefe) USERS = datos.u;
+    const d = desde ? new Date(desde) : new Date();
     $("#ultimaAct").textContent = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
-    $("#ultimaHora").textContent = `Datos cargados: ${d.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}`;
+    $("#ultimaHora").textContent = `${desde ? "Datos guardados" : "Datos cargados"}: ${d.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}`;
     $("#dlLocalidades").innerHTML = [...new Set(REC.map(r => r.localidad).filter(Boolean))].sort().map(l => `<option value="${esc(l)}">`).join("");
-  } catch (e) { aviso("No se pudieron cargar los datos: " + (e.message || e) + ". Recarga la p\u00e1gina.", true); }
+  }
   await cargarInformes();
+  mezclarPendientes();
 }
 
 function ir(t) {
@@ -277,7 +305,7 @@ function tablaRegistros(recs, opt = {}) {
   recs = [...recs].sort((a, b) => a.fecha.localeCompare(b.fecha) || a.jefe.localeCompare(b.jefe));
   let h = `<table><thead><tr><th>Fecha</th>${opt.jefe ? '<th class="izq">Jefe de brigada</th>' : ""}<th>Actividad</th><th class="izq">Localidad</th><th>Sector</th><th>Monitoreadas</th><th>Cerradas</th><th>Deshabitadas</th><th>Renuentes</th><th>Total</th><th>Horario</th><th class="izq">Observaciones</th>${opt.editar ? "<th></th>" : ""}</tr></thead><tbody>`;
   const admin = YO && YO.rol === "ADMIN", ahora = Date.now();
-  const acciones = r => { if (admin) return `<button class="btn-mini" data-ed="${esc(r.id)}" type="button">Editar</button><button class="btn-mini rojo" data-del="${esc(r.id)}" type="button">Eliminar</button>`;
+  const acciones = r => { if (r.pend) return `<span class="tag ${r.err ? "t-ro" : "t-am"}" title="${esc(r.err || "Se enviar\u00e1 cuando haya se\u00f1al")}">${r.err ? "\u274c No se pudo enviar" : "\u23f3 Por enviar"}</span>`; if (admin) return `<button class="btn-mini" data-ed="${esc(r.id)}" type="button">Editar</button><button class="btn-mini rojo" data-del="${esc(r.id)}" type="button">Eliminar</button>`;
     const lim = limiteEdicion(r.registrado);
     return ahora <= lim ? `<button class="btn-mini" data-ed="${esc(r.id)}" type="button">Editar</button><button class="btn-mini rojo" data-del="${esc(r.id)}" type="button">Eliminar</button><br><small class="plazo">Hasta ${fechaHora(lim)}</small>` : `<span class="tag t-gr" title="Pasaron las 24 horas h\u00e1biles para editar">\ud83d\udd12 Cerrado</span>`; };
   recs.forEach(r => { h += `<tr><td>${fechaPe(r.fecha)}</td>${opt.jefe ? `<td class="nom">${esc(r.jefe)}</td>` : ""}<td>${actTxt(r.actividad)}</td><td class="izq">${esc(r.localidad)}</td><td>${esc(r.sector)}</td><td><b>${fmt(r.monitoreadas)}</b></td><td>${fmt(r.cerradas)}</td><td>${fmt(r.deshabitadas)}</td><td>${fmt(r.renuentes)}</td><td>${fmt(r.total)}</td><td>${r.horaInicio && r.horaFin ? `${r.horaInicio} \u2013 ${r.horaFin}<br><small class="plazo">${duracion(r.horaInicio, r.horaFin)}</small>` : "\u2014"}</td><td class="obs">${esc(r.observaciones || "")}</td>${opt.editar ? `<td>${acciones(r)}</td>` : ""}</tr>`; });
@@ -411,7 +439,7 @@ function detalleJefe(j) {
 
 /* ---------------- descargas Excel ---------------- */
 function libro(hojas, nombre) {
-  if (!window.XLSX) return toast("No carg\u00f3 el componente de Excel; revisa tu internet");
+  if (!window.XLSX) { toast("Cargando el componente de Excel\u2026"); return cargarLib("xlsx").then(() => window.XLSX ? libro(hojas, nombre) : toast("No carg\u00f3 el componente de Excel; revisa tu internet")); }
   const wb = XLSX.utils.book_new();
   hojas.forEach(([n, aoa]) => { const ws = XLSX.utils.aoa_to_sheet(aoa); ws["!cols"] = (aoa[0] || []).map((_, i) => ({ wch: Math.min(45, Math.max(10, ...aoa.map(r => String(r[i] ?? "").length + 2))) })); XLSX.utils.book_append_sheet(wb, ws, n.slice(0, 31)); });
   XLSX.writeFile(wb, nombre);
@@ -504,11 +532,16 @@ async function guardarRegistro(e) {
   const reg = { id: ST.editId || "", usuario: YO.rol === "ADMIN" ? F.Usuario.value : "", actividad: F.Actividad.value, fecha: F.Fecha.value, localidad: normName(F.Localidad.value), sector: F.Sector.value.trim(),
     monitoreadas: num(F.Mon.value), cerradas: 0, deshabitadas: 0, renuentes: 0, total: F.Tot.value === "" ? "" : num(F.Tot.value), observaciones: F.Obs.value.trim(), horaInicio: F.Hi.value, horaFin: F.Hf.value };
   if (ST.editId) { const o = REC.find(x => x.id === ST.editId); if (o) Object.assign(reg, { cerradas: o.cerradas, deshabitadas: o.deshabitadas, renuentes: o.renuentes }); }
+  const nuevo = !ST.editId; if (nuevo) reg.cid = nuevoCid("r");
+  const enCola = () => { encolar("saveRecord", { registro: reg }, Object.assign({}, reg, { id: reg.cid, jefe: YO.rol === "ADMIN" ? jefeActual() : normName(YO.nombre), usuario: reg.usuario || YO.usuario, total: reg.total === "" ? reg.monitoreadas : reg.total }), `Registro del ${fechaPe(reg.fecha)} \u2013 ${reg.localidad || "sin localidad"} (${reg.monitoreadas} viv.)`);
+    ST.jcMes = reg.fecha.slice(0, 7); limpiarForm(true); pintarRegistrar(); msg.className = "msg ok"; msg.textContent = "\ud83d\udcf6 Sin se\u00f1al: el registro qued\u00f3 guardado en este celular y se enviar\u00e1 solo cuando haya conexi\u00f3n."; toast("Guardado en el celular (pendiente de env\u00edo)"); };
+  if (nuevo && navigator.onLine === false) return enCola();
+  if (!nuevo && navigator.onLine === false) { msg.textContent = "Para editar un registro necesitas conexi\u00f3n a internet."; return; }
   const b = $("#rgBtn"); b.disabled = true;
   try { const r = await api("saveRecord", { registro: reg }); if (!r.ok) { msg.textContent = r.error; b.disabled = false; return; }
     const era = !!ST.editId; await cargarTodo(); ST.jcMes = reg.fecha.slice(0, 7); limpiarForm(true); pintarRegistrar();
     msg.className = "msg ok"; msg.textContent = era ? "Registro actualizado." : "Registro guardado."; toast(era ? "Registro actualizado" : "Registro guardado"); F.Mon.focus();
-  } catch (err) { msg.textContent = "No hay conexi\u00f3n con el servidor. El registro no se guard\u00f3; int\u00e9ntalo de nuevo."; }
+  } catch (err) { if (nuevo) enCola(); else msg.textContent = "No hay conexi\u00f3n con el servidor. Los cambios no se guardaron; int\u00e9ntalo de nuevo."; }
   b.disabled = false;
 }
 function editarRegistro(id) {
@@ -599,7 +632,7 @@ function filasARegistros(rows) {
   return { out, omitidas };
 }
 async function leerExcel(e) {
-  const f = e.target.files[0]; if (!f) return; if (!window.XLSX) return toast("No carg\u00f3 el lector de Excel; revisa tu internet");
+  const f = e.target.files[0]; if (!f) return; if (!window.XLSX) await cargarLib("xlsx"); if (!window.XLSX) return toast("No carg\u00f3 el lector de Excel; revisa tu internet");
   try { const wb = XLSX.read(await f.arrayBuffer(), { type: "array" }); let out = [], om = 0;
     wb.SheetNames.forEach(n => { const res = filasARegistros(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: null })); out = out.concat(res.out); om += res.omitidas; });
     PEND = out;
@@ -805,13 +838,18 @@ function montarInformes() {
   limpiarFormInf(false);
 }
 
+const prepInf = l => (l || []).map(x => Object.assign({}, x, { jefe: normName(x.jefe), mes: String(x.fecha || "").slice(0, 7),
+  observaciones: Array.isArray(x.observaciones) ? x.observaciones : String(x.observaciones || "").split("\n").filter(Boolean) }));
 async function cargarInformes() {
   try {
     const r = await api("listInformes");
     SI.error = r.ok ? "" : (r.error || "Error");
-    INF = r.ok ? (r.informes || []).map(x => Object.assign({}, x, { jefe: normName(x.jefe), mes: String(x.fecha || "").slice(0, 7),
-      observaciones: Array.isArray(x.observaciones) ? x.observaciones : String(x.observaciones || "").split("\n").filter(Boolean) })) : [];
-  } catch (e) { INF = []; SI.error = "No hay conexi\u00f3n con el servidor"; }
+    if (r.ok && YO.rol !== "ADMIN") { try { localStorage.setItem("ssm_inf_" + YO.usuario, JSON.stringify(r.informes || [])); } catch (x) {} }
+    INF = r.ok ? prepInf(r.informes) : [];
+  } catch (e) {
+    let c = null; if (YO.rol !== "ADMIN") { try { c = JSON.parse(localStorage.getItem("ssm_inf_" + YO.usuario) || "null"); } catch (x) {} }
+    INF = c ? prepInf(c) : []; SI.error = c ? "" : "No hay conexi\u00f3n con el servidor";
+  }
 }
 
 /* ---------- formulario ---------- */
@@ -848,15 +886,23 @@ async function guardarInforme(e) {
   const x = leerFormInf();
   if (x.fecha > hoyTxt || x.fechaInsp > hoyTxt) { msg.textContent = "Las fechas no pueden ser posteriores a hoy."; return; }
   const c = limpiarInforme(x); if (!c.ok) { msg.textContent = c.error; return; }
+  const nuevo = !SI.editId;
+  const inf = Object.assign({ id: SI.editId || "", usuario: admin ? FI.Usuario.value : "" }, c.o); if (nuevo) inf.cid = nuevoCid("i");
+  const enCola = () => { const u = admin ? USERS.find(z => z.usuario === FI.Usuario.value) : null;
+    encolar("saveInforme", { informe: inf }, Object.assign({}, c.o, { id: inf.cid, jefe: u ? normName(u.nombre) : normName(YO.nombre), usuario: inf.usuario || YO.usuario }), `Informe del ${fechaPe(c.o.fecha)} \u2013 inspector ${c.o.inspector}`);
+    if (admin) { SI.nuevo = false; limpiarFormInf(false); } else limpiarFormInf(true); pintarInformes();
+    msg.className = "msg ok"; msg.textContent = "\ud83d\udcf6 Sin se\u00f1al: el informe qued\u00f3 guardado en este celular y se enviar\u00e1 solo cuando haya conexi\u00f3n."; toast("Guardado en el celular (pendiente de env\u00edo)"); };
+  if (nuevo && navigator.onLine === false) return enCola();
+  if (!nuevo && navigator.onLine === false) { msg.textContent = "Para editar un informe necesitas conexi\u00f3n a internet."; return; }
   const b = $("#iBtn"); b.disabled = true;
   try {
-    const r = await api("saveInforme", { informe: Object.assign({ id: SI.editId || "", usuario: admin ? FI.Usuario.value : "" }, c.o) });
+    const r = await api("saveInforme", { informe: inf });
     if (!r.ok) { msg.textContent = r.error; b.disabled = false; return; }
     const era = !!SI.editId; await cargarInformes();
     if (admin) { SI.nuevo = false; limpiarFormInf(false); } else limpiarFormInf(true);
     pintarInformes();
     msg.className = "msg ok"; msg.textContent = era ? "Informe actualizado." : "Informe guardado."; toast(era ? "Informe actualizado" : "Informe guardado");
-  } catch (err) { msg.textContent = "No hay conexi\u00f3n con el servidor. El informe no se guard\u00f3; int\u00e9ntalo de nuevo."; }
+  } catch (err) { if (nuevo) enCola(); else msg.textContent = "No hay conexi\u00f3n con el servidor. Los cambios no se guardaron; int\u00e9ntalo de nuevo."; }
   b.disabled = false;
 }
 function editarInforme(id) {
@@ -922,7 +968,7 @@ function pintarInformes() {
 function tablaInformes(l, admin) {
   if (!l.length) return `<div class="vacio">${admin ? "No hay informes con estos filtros." : "A\u00fan no registras informes. Llena el formulario de arriba."}</div>`;
   const ahora = Date.now();
-  const acc = i => { let h = `<button class="btn-mini" type="button" data-iver="${esc(i.id)}">\ud83d\udc41\ufe0f Ver</button><button class="btn-mini" type="button" data-iprt="${esc(i.id)}">\ud83d\udda8\ufe0f Imprimir</button>`;
+  const acc = i => { if (i.pend) return `<span class="tag ${i.err ? "t-ro" : "t-am"}" title="${esc(i.err || "Se enviar\u00e1 cuando haya se\u00f1al")}">${i.err ? "\u274c No se pudo enviar" : "\u23f3 Por enviar"}</span>`; let h = `<button class="btn-mini" type="button" data-iver="${esc(i.id)}">\ud83d\udc41\ufe0f Ver</button><button class="btn-mini" type="button" data-iprt="${esc(i.id)}">\ud83d\udda8\ufe0f Imprimir</button>`;
     if (admin) return h + `<br><button class="btn-mini" type="button" data-ied="${esc(i.id)}">Editar</button><button class="btn-mini rojo" type="button" data-idel="${esc(i.id)}">Eliminar</button>`;
     const lim = limiteEdicion(i.registrado);
     return h + (ahora <= lim ? `<br><button class="btn-mini" type="button" data-ied="${esc(i.id)}">Editar</button><button class="btn-mini rojo" type="button" data-idel="${esc(i.id)}">Eliminar</button><br><small class="plazo">Hasta ${fechaHora(lim)}</small>` : `<br><span class="tag t-gr" title="Pasaron las 24 horas h\u00e1biles para editar">\ud83d\udd12 Cerrado</span>`); };
@@ -977,6 +1023,74 @@ function excelInformes() {
     ...l.map(i => [fechaPe(i.fecha), i.a, i.de, i.asunto, fechaPe(i.fechaInsp), i.hora, i.direccion, i.sector, i.mza, i.ov, i.establecimiento, i.distrito, i.propietario, i.inspector, i.observaciones.length, i.observaciones.map((o, n) => `${n + 1}. ${o}`).join("  "), i.jefe])]]], `Informes_inspectores_${hoyTxt.replace(/-/g, "")}.xlsx`);
 }
 
+
+/* =====================================================================
+   TRABAJO SIN SE\u00d1AL: cola de env\u00edos guardada en el celular
+   - Lo nuevo (registros e informes) se guarda aqu\u00ed si no hay conexi\u00f3n
+     y se env\u00eda solo cuando vuelve la se\u00f1al.
+   - Cada env\u00edo lleva un identificador propio (cid), as\u00ed el servidor
+     no lo duplica aunque llegue dos veces.
+   ===================================================================== */
+const COLA = {
+  k: () => "ssm_cola_" + (YO ? YO.usuario : ""),
+  get() { try { return JSON.parse(localStorage.getItem(this.k()) || "[]"); } catch (e) { return []; } },
+  set(l) { try { localStorage.setItem(this.k(), JSON.stringify(l)); } catch (e) { toast("El celular no tiene espacio para guardar el pendiente"); } },
+  quitar(cid) { this.set(this.get().filter(x => x.cid !== cid)); },
+  marcar(cid, err) { this.set(this.get().map(x => x.cid === cid ? Object.assign(x, { error: err }) : x)); }
+};
+let SYNC = false;
+function nuevoCid(p) { return p + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8); }
+function encolar(action, data, vista, desc) {
+  const l = COLA.get(); l.push({ cid: vista.id, action, data, vista: Object.assign(vista, { registrado: new Date().toISOString(), mes: String(vista.fecha || "").slice(0, 7) }), desc, creado: Date.now() });
+  COLA.set(l); mezclarPendientes(); pintarCola();
+}
+function mezclarPendientes() {
+  const ids = new Set(REC.filter(r => !r.pend).map(r => r.id)), idsI = new Set(INF.filter(i => !i.pend).map(i => i.id));
+  REC = REC.filter(r => !r.pend); INF = INF.filter(i => !i.pend);
+  COLA.get().forEach(it => {
+    const ya = it.action === "saveRecord" ? ids.has(it.cid) : idsI.has(it.cid);
+    if (ya) { COLA.quitar(it.cid); return; }   // el servidor ya lo tiene
+    const v = Object.assign({}, it.vista, { pend: true, err: it.error || "" });
+    if (it.action === "saveRecord") REC.push(v); else INF.push(v);
+  });
+  pintarCola();
+}
+async function sincronizar(manual) {
+  if (SYNC || !YO) return;
+  const l = COLA.get().filter(x => manual || !x.error); if (!l.length) return pintarCola();
+  SYNC = true; pintarCola(); let env = 0, sinRed = false;
+  for (const it of l) {
+    try { const r = await api(it.action, it.data);
+      if (r.ok) { COLA.quitar(it.cid); env++; } else if (r.error === "SESION") break; else COLA.marcar(it.cid, r.error || "Error"); }
+    catch (e) { sinRed = true; break; }
+  }
+  SYNC = false;
+  if (env) { await cargarTodo(); pintar(); toast(`\u2705 Se enviaron ${env} pendiente(s)`); }
+  else if (manual && sinRed) toast("Todav\u00eda no hay conexi\u00f3n. Se enviar\u00e1 solo cuando vuelva la se\u00f1al.");
+  pintarCola();
+}
+function pintarCola() {
+  const e = $("#colaAviso"); if (!e) return; const l = COLA.get();
+  if (!l.length) { e.innerHTML = ""; return; }
+  const nr = l.filter(i => i.action === "saveRecord").length, ni = l.length - nr;
+  const que = [nr && `${nr} registro${nr > 1 ? "s" : ""}`, ni && `${ni} informe${ni > 1 ? "s" : ""}`].filter(Boolean).join(" y ");
+  const errs = l.filter(i => i.error);
+  e.innerHTML = `<div class="banner" style="background:#fff7ed;border:1px solid #fdba74;color:#7c2d12;margin:8px 16px;border-radius:10px;padding:10px 14px">\u26a0\ufe0f Tienes <b>${que}</b> guardado${l.length > 1 ? "s" : ""} en este celular <b>sin enviar</b>. Se enviar\u00e1${l.length > 1 ? "n" : ""} solo${l.length > 1 ? "s" : ""} cuando haya se\u00f1al. <b>No borres los datos del navegador.</b>
+    <button class="btn-mini" id="colaEnviar" type="button" ${SYNC ? "disabled" : ""} style="margin-left:6px">${SYNC ? "Enviando\u2026" : "\ud83d\udce4 Enviar ahora"}</button>
+    ${errs.map(i => `<div style="margin-top:6px">\u274c <b>${esc(i.desc || "Pendiente")}</b>: ${esc(i.error)} <button class="btn-mini rojo" type="button" data-descartar="${esc(i.cid)}">Descartar</button></div>`).join("")}</div>`;
+  const b = $("#colaEnviar"); if (b) b.onclick = () => sincronizar(true);
+  e.querySelectorAll("[data-descartar]").forEach(x => x.onclick = () => { if (!confirm("\u00bfDescartar este pendiente? Se perder\u00e1 y tendr\u00e1s que registrarlo de nuevo.")) return; COLA.quitar(x.dataset.descartar); mezclarPendientes(); pintar(); });
+}
+
+/* ---------- librer\u00edas pesadas: solo se descargan cuando se usan ---------- */
+const LIBS = { chart: "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js", xlsx: "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" };
+const LIBS_P = {};
+function cargarLib(k) {
+  if ((k === "chart" && window.Chart) || (k === "xlsx" && window.XLSX)) return Promise.resolve();
+  return LIBS_P[k] || (LIBS_P[k] = new Promise(res => { const sc = document.createElement("script"); sc.src = LIBS[k]; sc.async = true;
+    sc.onload = () => res(); sc.onerror = () => { delete LIBS_P[k]; res(); }; document.head.append(sc); }));
+}
+
 /* =====================================================================
    CAMBIAR CONTRASE\u00d1A
    ===================================================================== */
@@ -993,6 +1107,7 @@ function dialogoClave() {
 /* ---------------- arranque ---------------- */
 document.addEventListener("DOMContentLoaded", () => {
   const x = $("#dlgX"); if (x) x.onclick = () => $("#dlg").close();
+  if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
   if (document.body.dataset.page === "portada") iniciarPortada();
   else if (document.body.dataset.page === "dashboard") iniciarDashboard();
 });
