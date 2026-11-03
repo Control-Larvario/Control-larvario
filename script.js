@@ -49,6 +49,7 @@ function limiteEdicion(creado) {
     const tramo = Math.min(falta, fin - t); t += tramo; falta -= tramo; }
   return t + OFF;
 }
+const MSJ_PLAZO_INF = "El plazo para editar o eliminar este informe (24 horas h\u00e1biles) ya venci\u00f3. Pide al administrador que lo corrija.";
 function horaOk(v) { const m = String(v ?? "").trim().match(/^(\d{1,2}):(\d{2})/); if (m && +m[1] < 24 && +m[2] < 60) return `${pad(+m[1])}:${m[2]}`;
   if (typeof v === "number" && v >= 0 && v < 1) { const t = Math.round(v * 1440); return `${pad(Math.floor(t / 60))}:${pad(t % 60)}`; } return ""; }
 function duracion(hi, hf) { if (!hi || !hf) return ""; const a = hi.split(":"), b = hf.split(":"); const m = (+b[0] * 60 + +b[1]) - (+a[0] * 60 + +a[1]); if (m <= 0) return ""; return (m >= 60 ? Math.floor(m / 60) + " h " : "") + (m % 60 ? (m % 60) + " min" : "").trim(); }
@@ -122,6 +123,20 @@ const Demo = (() => {
         if (!admin && !dueno(d.registros[i], su)) return { ok: false, error: "Solo puedes eliminar tus propios registros." };
         if (!admin && Date.now() > limiteEdicion(d.registros[i].registrado)) return { ok: false, error: MSJ_PLAZO };
         d.registros.splice(i, 1); save(d); return { ok: true }; }
+      case "listInformes": return { ok: true, informes: (d.informes || []).filter(r => admin || r.usuario === su.usuario) };
+      case "saveInforme": { d.informes = d.informes || []; const x = p.informe || {}; const c = limpiarInforme(x); if (!c.ok) return { ok: false, error: c.error };
+        let jefe = su.nombre, usuario = su.usuario; if (admin && x.usuario) { const u = find(x.usuario); if (u) { jefe = u.nombre; usuario = u.usuario; } }
+        if (x.id) { const r = d.informes.find(z => z.id === x.id); if (!r) return { ok: false, error: "No se encontr\u00f3 el informe." };
+          if (!admin && r.usuario !== su.usuario) return { ok: false, error: "Solo puedes editar tus propios informes." };
+          if (!admin && Date.now() > limiteEdicion(r.registrado)) return { ok: false, error: MSJ_PLAZO_INF };
+          if (!admin || !x.usuario) { jefe = r.jefe; usuario = r.usuario; }
+          Object.assign(r, c.o, { jefe, usuario }); save(d); return { ok: true, id: x.id }; }
+        const id = "i-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        d.informes.push(Object.assign({ id }, c.o, { jefe, usuario, registrado: new Date().toISOString() })); save(d); return { ok: true, id }; }
+      case "deleteInforme": { d.informes = d.informes || []; const i = d.informes.findIndex(z => z.id === p.id); if (i < 0) return { ok: false, error: "No se encontr\u00f3 el informe." };
+        if (!admin && d.informes[i].usuario !== su.usuario) return { ok: false, error: "Solo puedes eliminar tus propios informes." };
+        if (!admin && Date.now() > limiteEdicion(d.informes[i].registrado)) return { ok: false, error: MSJ_PLAZO_INF };
+        d.informes.splice(i, 1); save(d); return { ok: true }; }
     }
     if (!admin) return { ok: false, error: "Solo el administrador puede hacer esto." };
     switch (a) {
@@ -176,8 +191,8 @@ let YO = null, REC = [], METAS = [], USERS = [];
 const ST = { calMes: null, calDia: null, jcMes: hoyTxt.slice(0, 7), editId: null, tab: null };
 const CH = {};
 
-const TABS_ADMIN = [["dashboard", "\ud83d\udcca Dashboard"], ["registros", "\ud83d\udcdd Registros"], ["registrar", "\u2795 Registrar"], ["usuarios", "\ud83d\udc65 Usuarios"], ["metas", "\ud83c\udfaf Metas"], ["importar", "\ud83d\udce5 Importar Excel"]];
-const TABS_JEFE = [["registrar", "\ud83d\udcdd Registrar y mis registros"]];
+const TABS_ADMIN = [["dashboard", "\ud83d\udcca Dashboard"], ["registros", "\ud83d\udcdd Registros"], ["informes", "\ud83d\udcc4 Informes"], ["registrar", "\u2795 Registrar"], ["usuarios", "\ud83d\udc65 Usuarios"], ["metas", "\ud83c\udfaf Metas"], ["importar", "\ud83d\udce5 Importar Excel"]];
+const TABS_JEFE = [["registrar", "\ud83d\udcdd Registrar y mis registros"], ["informes", "\ud83d\udcc4 Informes de inspectores"]];
 
 async function iniciarDashboard() {
   $("#tituloSistema").textContent = CONFIG.TITULO;
@@ -193,7 +208,7 @@ async function iniciarDashboard() {
   $$("#tabs a").forEach(a => a.onclick = e => { e.preventDefault(); ir(a.dataset.t); history.replaceState(null, "", "#" + a.dataset.t); });
   $("#btnSalir").onclick = async () => { try { await api("logout"); } catch (e) {} localStorage.removeItem(TK); localStorage.removeItem(US); location.href = "index.html"; };
   $("#btnClave").onclick = dialogoClave;
-  enlazarRegistro(); if (YO.rol === "ADMIN") enlazarAdmin();
+  montarInformes(); enlazarRegistro(); if (YO.rol === "ADMIN") enlazarAdmin();
   await cargarTodo();
   $("#cargando").remove();
   const h = location.hash.slice(1);
@@ -213,6 +228,7 @@ async function cargarTodo() {
     $("#ultimaHora").textContent = `Datos cargados: ${d.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit" })}`;
     $("#dlLocalidades").innerHTML = [...new Set(REC.map(r => r.localidad).filter(Boolean))].sort().map(l => `<option value="${esc(l)}">`).join("");
   } catch (e) { aviso("No se pudieron cargar los datos: " + (e.message || e) + ". Recarga la p\u00e1gina.", true); }
+  await cargarInformes();
 }
 
 function ir(t) {
@@ -222,7 +238,7 @@ function ir(t) {
   pintar();
 }
 function pintar() {
-  ({ dashboard: pintarDashboard, registros: pintarRegistrosAdmin, registrar: pintarRegistrar, usuarios: pintarUsuarios, metas: pintarMetas, importar: () => {} }[ST.tab] || (() => {}))();
+  ({ dashboard: pintarDashboard, registros: pintarRegistrosAdmin, registrar: pintarRegistrar, usuarios: pintarUsuarios, metas: pintarMetas, informes: pintarInformes, importar: () => {} }[ST.tab] || (() => {}))();
 }
 
 /* ---------------- c\u00e1lculos comunes ---------------- */
@@ -602,6 +618,361 @@ async function importar() {
       const r = await api("importRecords", { registros: PEND.slice(i, i + 300) }); if (!r.ok) throw new Error(r.error); nuevos += r.nuevos; rep += r.repetidos || 0; }
     await cargarTodo(); msg.className = "msg ok"; msg.textContent = `Listo: ${nuevos} registros nuevos${rep ? `, ${rep} ya exist\u00edan` : ""}.`; toast("Importaci\u00f3n terminada"); PEND = [];
   } catch (e) { msg.className = "msg"; msg.textContent = "La importaci\u00f3n se detuvo: " + (e.message || e); b.disabled = false; }
+}
+
+/* =====================================================================
+   INFORMES DE ACTIVIDADES DE VIGILANCIA Y CONTROL VECTORIAL - ARBOVIROSIS
+   El jefe de brigada registra el informe sobre la vivienda inspeccionada
+   por un inspector (igual que el formato f\u00edsico). El administrador ve el
+   \u00abReporte de informes\u00bb y puede imprimir cada informe con el formato f\u00edsico.
+   ===================================================================== */
+let INF = [];
+const SI = { editId: null, nuevo: false, error: "", lista: [] };
+const FI = {};
+const CAMPOS_INF = [["A", "a"], ["De", "de"], ["Asunto", "asunto"], ["Fecha", "fecha"], ["FechaInsp", "fechaInsp"], ["Hora", "hora"], ["Direccion", "direccion"], ["Sector", "sector"], ["Mza", "mza"], ["Ov", "ov"], ["Eess", "establecimiento"], ["Distrito", "distrito"], ["Prop", "propietario"], ["Insp", "inspector"]];
+const fechaLarga = f => f ? [String(+f.slice(8)), MESES[+f.slice(5, 7) - 1].toLowerCase(), f.slice(0, 4)] : ["", "", ""];
+
+// Limpia y valida un informe (lo usan el formulario y el modo demostraci\u00f3n)
+function limpiarInforme(x) {
+  const t = (v, n) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, n || 200);
+  const o = { a: normName(x.a), de: normName(x.de), asunto: t(x.asunto), fecha: x.fecha || "", fechaInsp: x.fechaInsp || "", hora: horaOk(x.hora), direccion: t(x.direccion), sector: t(x.sector, 30), mza: t(x.mza, 30), ov: t(x.ov, 30),
+    establecimiento: normName(x.establecimiento), distrito: normName(x.distrito), propietario: normName(x.propietario), inspector: normName(x.inspector),
+    observaciones: (Array.isArray(x.observaciones) ? x.observaciones : String(x.observaciones || "").split("\n")).map(s => t(s, 500)).filter(Boolean).slice(0, 30) };
+  const dt = /^\d{4}-\d{2}-\d{2}$/;
+  if (!dt.test(o.fecha)) return { error: "Fecha del informe no v\u00e1lida." };
+  if (!dt.test(o.fechaInsp)) return { error: "Fecha de la inspecci\u00f3n no v\u00e1lida." };
+  if (o.fechaInsp > o.fecha) return { error: "La fecha de la inspecci\u00f3n no puede ser posterior a la fecha del informe." };
+  if (!o.hora) return { error: "Escribe la hora de la inspecci\u00f3n." };
+  for (const [k, n] of [["a", "A (dirigido a)"], ["de", "DE (remitente)"], ["asunto", "Asunto (situaci\u00f3n encontrada en)"], ["direccion", "Jr./Av./Psje."], ["establecimiento", "Establecimiento de salud"], ["distrito", "Distrito"], ["inspector", "Inspector"]])
+    if (!o[k]) return { error: `Falta completar: ${n}.` };
+  if (!o.observaciones.length) return { error: "Escribe al menos una observaci\u00f3n." };
+  return { ok: true, o };
+}
+
+/* ---------- estilos del m\u00f3dulo y de la hoja del informe ---------- */
+const IH_CSS = `
+.ih{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:13.5px}
+.ih-logo{display:flex;align-items:center;gap:10px;font-size:10px;font-weight:700;color:#333;margin-bottom:16px;line-height:1.3}
+.ih-logo img{height:44px}
+.ih-logo small{font-weight:400;font-size:9px}
+.ih h1{font-size:15px;text-align:center;text-decoration:underline;margin:6px 0 24px;letter-spacing:.01em}
+.ih-cab{border-collapse:collapse;width:100%;margin-bottom:20px}
+.ih-cab th{text-align:left;width:120px;padding:8px 0 8px 34px;font-weight:700;vertical-align:bottom}
+.ih-cab td{padding:8px 0;vertical-align:bottom}
+.ih-cab td.p{width:16px;font-weight:700}
+.ih-v{color:#1e3a8a;font-weight:600;border-bottom:1px dotted #444;padding:0 4px;line-height:1.5}
+.ih-v.c{display:inline-block;min-width:46px;text-align:center}
+.ih-cab .ih-v.l{display:inline-block;min-width:75%}
+.ih-cab .ih-v.m{display:inline-block;min-width:55%}
+.ih-p{line-height:2.4;text-align:justify;margin:0}
+.ih-so{font-weight:700;margin:14px 0 2px}
+.ih-obs{margin:0;padding-left:24px;line-height:2.2}
+.ih-obs li{border-bottom:1px dotted #444;color:#1e3a8a;font-weight:600}
+.ih-obs li::marker{color:#111;font-weight:700}
+.ih-obs li.vac{list-style:none}
+.ih-firma{margin:80px auto 0;width:340px;text-align:center}
+.ih-firma div{display:flex;align-items:flex-end;gap:8px;font-weight:700;font-size:15px}
+.ih-firma i{flex:1;border-bottom:1px dotted #111;height:1px}
+.ih-firma b{display:block;margin:6px 0 0 66px;font-size:12px}
+.ih-firma small{display:block;margin-left:66px;color:#555;font-size:11px}`;
+const INF_CSS = `
+#v-informes [hidden]{display:none!important}
+.inf-card{background:#fff;border-radius:14px;box-shadow:0 2px 10px rgba(15,23,42,.08);padding:18px 20px;margin:0 0 18px;color:#0f172a}
+.inf-card h2{margin:0 0 4px;font-size:1.08rem;color:#0f3d3e}
+.inf-card .sub{margin:2px 0 8px}
+.inf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px 14px;margin:8px 0 4px}
+.inf-form label,.inf-fil label{display:flex;flex-direction:column;gap:4px;font-size:.8rem;font-weight:600;color:#334155}
+.inf-form input,.inf-form select,.inf-form textarea,.inf-fil input,.inf-fil select{font:inherit;font-size:.9rem;font-weight:400;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#0f172a;width:100%;box-sizing:border-box}
+.inf-form input:focus,.inf-form textarea:focus,.inf-form select:focus{outline:2px solid #0e8a9b;outline-offset:0;border-color:#0e8a9b}
+.inf-form .w2{grid-column:span 2}
+.inf-form .w3{grid-column:1/-1}
+@media(max-width:640px){.inf-form .w2{grid-column:auto}}
+.inf-sec{margin:18px 0 4px;font-size:.74rem;font-weight:800;letter-spacing:.07em;color:#0e8a9b;text-transform:uppercase;border-bottom:2px solid #dff1f3;padding-bottom:5px}
+.inf-pre{display:flex;align-items:center;gap:8px}
+.inf-pre span{white-space:nowrap;color:#475569;font-weight:600;font-size:.85rem}
+.inf-obs{margin:8px 0 10px;padding-left:24px}
+.inf-obs li{margin:8px 0}
+.inf-obs li>div{display:flex;gap:8px;align-items:flex-start}
+.inf-obs textarea{resize:vertical;min-height:44px}
+.inf-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}
+.inf-fil{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 12px;margin-top:10px}
+.inf-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:14px}
+.inf-acc{white-space:nowrap}
+.inf-acc button{margin:2px}
+.inf-papel{background:#fff;padding:26px 30px;max-width:780px;margin:0 auto;border:1px solid #e2e8f0;box-shadow:0 2px 12px rgba(0,0,0,.08)}
+.inf-dlgbar{display:flex;gap:8px;justify-content:flex-end;padding:10px 4px}
+#tInformes td.obs{max-width:280px;text-align:left}
+${IH_CSS}`;
+
+/* ---------- monta la vista dentro de dashboard.html (no hay que editar el HTML) ---------- */
+function montarInformes() {
+  if ($("#v-informes")) return;
+  const st = document.createElement("style"); st.id = "infCss"; st.textContent = INF_CSS; document.head.append(st);
+  const sec = document.createElement("section"); sec.className = "vista"; sec.id = "v-informes"; sec.hidden = true;
+  sec.innerHTML = `
+  <div id="iAviso"></div>
+  <div class="inf-card" id="infAdminBar" hidden>
+    <h2>\ud83d\udcc4 Reporte de informes</h2>
+    <p class="sub">Informes de actividades de vigilancia y control vectorial \u2013 arbovirosis, registrados por los jefes de brigada sobre la labor de los inspectores.</p>
+    <div class="inf-fil">
+      <label>Mes del informe<select id="iMes"></select></label>
+      <label>Desde<input type="date" id="iDesde"></label>
+      <label>Hasta<input type="date" id="iHasta"></label>
+      <label>Jefe de brigada<select id="iJefe"></select></label>
+      <label>Inspector<select id="iInsp"></select></label>
+      <label>Establecimiento<select id="iFEess"></select></label>
+      <label>Buscar<input id="iBuscar" placeholder="Nombre, direcci\u00f3n, observaci\u00f3n\u2026"></label>
+    </div>
+    <div class="inf-bar">
+      <button class="btn-teal" type="button" id="iNuevo">\u2795 Nuevo informe</button>
+      <button class="btn-azul" type="button" id="iPrintAll">\ud83d\udda8\ufe0f Imprimir los filtrados</button>
+      <button class="btn-mini" type="button" id="iXls">\ud83d\udce5 Descargar Excel</button>
+      <button class="btn-mini" type="button" id="iLimpiarFil">Quitar filtros</button>
+      <button class="btn-mini" type="button" id="iRecargar">\ud83d\udd04 Actualizar</button>
+    </div>
+    <div class="inf-kpis" id="iKpis"></div>
+  </div>
+
+  <div class="inf-card" id="infFormCard">
+    <h2 id="iTitulo">\ud83d\udcdd Registrar informe</h2>
+    <p class="sub">Llena los datos en el mismo orden del formato f\u00edsico \u00abInforme de actividades de vigilancia y control vectorial \u2013 arbovirosis\u00bb.</p>
+    <form id="frmInf" class="inf-form" autocomplete="off">
+      <div class="inf-grid" id="iLblJefe" hidden><label class="w2">Jefe de brigada que informa<select id="iUsuario"></select></label></div>
+      <div class="inf-sec">Encabezado</div>
+      <div class="inf-grid">
+        <label class="w2">A<input id="iA" list="dlInfA" placeholder="Nombre y cargo del destinatario" required></label>
+        <label class="w2">DE<input id="iDe" placeholder="Jefe de brigada que informa" required></label>
+        <label class="w3">Asunto<span class="inf-pre"><span>Situaci\u00f3n encontrada en</span><input id="iAsunto" placeholder="vivienda / lote, localidad\u2026" required></span></label>
+        <label>Fecha del informe<input type="date" id="iFecha" required></label>
+      </div>
+      <div class="inf-sec">Datos de la inspecci\u00f3n</div>
+      <div class="inf-grid">
+        <label>Siendo el d\u00eda<input type="date" id="iFechaInsp" required></label>
+        <label>A horas<input type="time" id="iHora" required></label>
+        <label class="w2">Jr. / Av. / Psje.<input id="iDireccion" placeholder="Ej.: Jr. Los Pinos 345" required></label>
+        <label>Sector<input id="iSector"></label>
+        <label>Mza<input id="iMza"></label>
+        <label>Ov<input id="iOv"></label>
+        <label class="w2">Establecimiento de salud (jurisdicci\u00f3n)<input id="iEess" list="dlInfEess" required></label>
+        <label>Distrito<input id="iDistrito" list="dlInfDist" required></label>
+        <label class="w2">De propiedad del Sr(a)<input id="iProp" placeholder="Propietario de la vivienda"></label>
+        <label class="w2">Inspeccionada por el Inspector Sr(a)<input id="iInsp2" list="dlInfInsp" required></label>
+      </div>
+      <div class="inf-sec">Se observa</div>
+      <ol class="inf-obs" id="iObs"></ol>
+      <button type="button" class="btn-mini" id="iAddObs">\u2795 Agregar observaci\u00f3n</button>
+      <p class="msg" id="iMsg" role="alert"></p>
+      <div class="inf-bar">
+        <button class="btn-teal" type="submit" id="iBtn">Guardar informe</button>
+        <button class="btn-mini" type="button" id="iVista">\ud83d\udc41\ufe0f Vista previa</button>
+        <button class="btn-mini rojo" type="button" id="iCancelar" hidden>Cancelar</button>
+      </div>
+    </form>
+    <datalist id="dlInfA"></datalist><datalist id="dlInfEess"></datalist><datalist id="dlInfDist"></datalist><datalist id="dlInfInsp"></datalist>
+  </div>
+
+  <div class="inf-card" id="infResumen" hidden>
+    <h2>\ud83d\udc77 Informes por inspector</h2>
+    <p class="sub">Seg\u00fan los filtros del reporte.</p>
+    <div class="tabla" id="tInfInsp"></div>
+  </div>
+
+  <div class="inf-card">
+    <div class="inf-bar" style="margin:0 0 6px;justify-content:space-between"><h2 id="iListaTit">Mis informes</h2><label id="iFilJefe" class="inf-fil" style="margin:0"><span style="font-size:.8rem;font-weight:600;color:#334155">Mes<select id="iMesJ"></select></span></label></div>
+    <p class="sub" id="iCuenta"></p>
+    <div class="tabla" id="tInformes"></div>
+  </div>`;
+  const vs = $$(".vista"); const ref = vs[vs.length - 1];
+  if (ref) ref.after(sec); else ($("main") || document.body).append(sec);
+
+  CAMPOS_INF.forEach(([k]) => FI[k] = $("#i" + (k === "Insp" ? "Insp2" : k)));
+  FI.Usuario = $("#iUsuario");
+  $("#frmInf").onsubmit = guardarInforme;
+  $("#iAddObs").onclick = () => { const li = obsItem(""); $("#iObs").append(li); li.querySelector("textarea").focus(); };
+  $("#iVista").onclick = () => verInforme(Object.assign(leerFormInf(), { jefe: FI.De.value }), true);
+  $("#iCancelar").onclick = () => { SI.nuevo = false; limpiarFormInf(false); pintarInformes(); };
+  FI.Usuario.onchange = () => { const u = USERS.find(x => x.usuario === FI.Usuario.value); if (u) FI.De.value = normName(u.nombre); };
+  ["iMes", "iDesde", "iHasta", "iJefe", "iInsp", "iFEess", "iMesJ"].forEach(id => $("#" + id).onchange = () => {
+    if (id === "iMes") { $("#iDesde").value = ""; $("#iHasta").value = ""; } if (id === "iDesde" || id === "iHasta") $("#iMes").value = ""; pintarInformes(); });
+  $("#iBuscar").oninput = pintarInformes;
+  $("#iLimpiarFil").onclick = () => { ["iMes", "iDesde", "iHasta", "iJefe", "iInsp", "iFEess", "iBuscar"].forEach(id => $("#" + id).value = ""); pintarInformes(); };
+  $("#iNuevo").onclick = () => { SI.nuevo = true; limpiarFormInf(false); pintarInformes(); $("#infFormCard").scrollIntoView({ behavior: "smooth" }); };
+  $("#iPrintAll").onclick = () => SI.lista.length ? imprimirInformes(ordenInf(SI.lista)) : toast("No hay informes con estos filtros");
+  $("#iXls").onclick = excelInformes;
+  $("#iRecargar").onclick = async () => { await cargarInformes(); pintarInformes(); toast("Informes actualizados"); };
+  limpiarFormInf(false);
+}
+
+async function cargarInformes() {
+  try {
+    const r = await api("listInformes");
+    SI.error = r.ok ? "" : (r.error || "Error");
+    INF = r.ok ? (r.informes || []).map(x => Object.assign({}, x, { jefe: normName(x.jefe), mes: String(x.fecha || "").slice(0, 7),
+      observaciones: Array.isArray(x.observaciones) ? x.observaciones : String(x.observaciones || "").split("\n").filter(Boolean) })) : [];
+  } catch (e) { INF = []; SI.error = "No hay conexi\u00f3n con el servidor"; }
+}
+
+/* ---------- formulario ---------- */
+function obsItem(v) {
+  const li = document.createElement("li");
+  li.innerHTML = `<div><textarea rows="2" maxlength="500" placeholder="Describe lo observado\u2026">${esc(v || "")}</textarea><button type="button" class="btn-mini rojo" title="Quitar esta observaci\u00f3n">\u2715</button></div>`;
+  li.querySelector("button").onclick = () => { li.remove(); if (!$("#iObs").children.length) $("#iObs").append(obsItem("")); };
+  return li;
+}
+function leerFormInf() {
+  const o = {}; CAMPOS_INF.forEach(([k, c]) => o[c] = FI[k].value);
+  o.observaciones = $$("#iObs textarea").map(t => t.value.trim()).filter(Boolean);
+  return o;
+}
+function ultimoA() {
+  const m = INF.filter(i => i.usuario === YO.usuario && i.a).sort((a, b) => String(b.registrado).localeCompare(String(a.registrado)));
+  return m.length ? m[0].a : "";
+}
+function limpiarFormInf(conservar) {
+  const admin = YO.rol === "ADMIN";
+  SI.editId = null;
+  $("#iTitulo").textContent = "\ud83d\udcdd Registrar informe"; $("#iBtn").textContent = "Guardar informe"; $("#iCancelar").hidden = !admin;
+  ["Asunto", "Hora", "Direccion", "Sector", "Mza", "Ov", "Prop", "Insp"].forEach(k => FI[k].value = "");
+  FI.FechaInsp.value = hoyTxt; FI.FechaInsp.max = hoyTxt; FI.Fecha.max = hoyTxt;
+  if (!conservar) { FI.Fecha.value = hoyTxt; FI.A.value = admin ? "" : ultimoA(); FI.Eess.value = ""; FI.Distrito.value = "";
+    if (admin) { const u = USERS.find(x => x.usuario === FI.Usuario.value); FI.De.value = u ? normName(u.nombre) : ""; } else FI.De.value = normName(YO.nombre); }
+  $("#iObs").innerHTML = ""; $("#iObs").append(obsItem(""));
+  const m = $("#iMsg"); if (!conservar) { m.className = "msg"; m.textContent = ""; }
+}
+async function guardarInforme(e) {
+  e.preventDefault(); const msg = $("#iMsg"); msg.className = "msg"; msg.textContent = "";
+  const admin = YO.rol === "ADMIN";
+  if (admin && !SI.editId && !FI.Usuario.value) { msg.textContent = "Elige el jefe de brigada que informa."; return FI.Usuario.focus(); }
+  const x = leerFormInf();
+  if (x.fecha > hoyTxt || x.fechaInsp > hoyTxt) { msg.textContent = "Las fechas no pueden ser posteriores a hoy."; return; }
+  const c = limpiarInforme(x); if (!c.ok) { msg.textContent = c.error; return; }
+  const b = $("#iBtn"); b.disabled = true;
+  try {
+    const r = await api("saveInforme", { informe: Object.assign({ id: SI.editId || "", usuario: admin ? FI.Usuario.value : "" }, c.o) });
+    if (!r.ok) { msg.textContent = r.error; b.disabled = false; return; }
+    const era = !!SI.editId; await cargarInformes();
+    if (admin) { SI.nuevo = false; limpiarFormInf(false); } else limpiarFormInf(true);
+    pintarInformes();
+    msg.className = "msg ok"; msg.textContent = era ? "Informe actualizado." : "Informe guardado."; toast(era ? "Informe actualizado" : "Informe guardado");
+  } catch (err) { msg.textContent = "No hay conexi\u00f3n con el servidor. El informe no se guard\u00f3; int\u00e9ntalo de nuevo."; }
+  b.disabled = false;
+}
+function editarInforme(id) {
+  const i = INF.find(x => x.id === id); if (!i) return;
+  if (YO.rol !== "ADMIN" && Date.now() > limiteEdicion(i.registrado)) return toast("Ya pasaron las 24 horas h\u00e1biles para editar este informe");
+  SI.editId = id; SI.nuevo = false;
+  if (YO.rol === "ADMIN") { pintarInformes(); FI.Usuario.value = i.usuario || ""; }
+  CAMPOS_INF.forEach(([k, c]) => FI[k].value = i[c] || "");
+  $("#iObs").innerHTML = ""; (i.observaciones.length ? i.observaciones : [""]).forEach(o => $("#iObs").append(obsItem(o)));
+  $("#iTitulo").textContent = `\u270f\ufe0f Editar informe del ${fechaPe(i.fecha)} \u2014 inspector ${i.inspector}`; $("#iBtn").textContent = "Guardar cambios"; $("#iCancelar").hidden = false;
+  $("#iMsg").textContent = "";
+  pintarInformes(); $("#infFormCard").scrollIntoView({ behavior: "smooth" }); FI.A.focus();
+}
+async function borrarInforme(id) {
+  const i = INF.find(x => x.id === id); if (!i) return;
+  if (YO.rol !== "ADMIN" && Date.now() > limiteEdicion(i.registrado)) return toast("Ya pasaron las 24 horas h\u00e1biles para eliminar este informe");
+  if (!confirm(`\u00bfEliminar el informe del ${fechaPe(i.fecha)} sobre el inspector ${i.inspector} (${i.direccion})?`)) return;
+  try { const r = await api("deleteInforme", { id }); if (!r.ok) return toast(r.error); if (SI.editId === id) limpiarFormInf(false); await cargarInformes(); pintarInformes(); toast("Informe eliminado"); }
+  catch (e) { toast("No hay conexi\u00f3n con el servidor"); }
+}
+
+/* ---------- vista ---------- */
+const ordenInf = l => [...l].sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)) || String(b.registrado).localeCompare(String(a.registrado)));
+function pintarInformes() {
+  if (!$("#v-informes") || !YO) return;
+  const admin = YO.rol === "ADMIN";
+  $("#iAviso").innerHTML = SI.error ? `<div class="banner err">${SI.error === "Acci\u00f3n desconocida" ? "El servidor todav\u00eda no tiene el m\u00f3dulo de informes. Pega el nuevo Codigo.gs en Apps Script, ejecuta \u00abinstalar\u00bb y publica una nueva versi\u00f3n." : "No se pudieron cargar los informes: " + esc(SI.error)}</div>` : "";
+  $("#infAdminBar").hidden = !admin; $("#infResumen").hidden = !admin; $("#iFilJefe").style.display = admin ? "none" : "";
+  $("#infFormCard").hidden = admin && !SI.nuevo && !SI.editId;
+  $("#iLblJefe").hidden = !admin;
+  if (admin) { const v = FI.Usuario.value; const js = USERS.filter(u => u.rol === "JEFE" && u.activo).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+    FI.Usuario.innerHTML = `<option value="">\u2014 Elige un jefe de brigada \u2014</option>` + js.map(u => `<option value="${esc(u.usuario)}">${esc(u.nombre)}</option>`).join(""); if (js.some(u => u.usuario === v)) FI.Usuario.value = v; }
+  const uniq = k => [...new Set(INF.map(i => i[k]).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+  [["dlInfA", "a"], ["dlInfInsp", "inspector"], ["dlInfEess", "establecimiento"], ["dlInfDist", "distrito"]].forEach(([id, k]) => $("#" + id).innerHTML = uniq(k).map(x => `<option value="${esc(x)}">`).join(""));
+  if (!admin && !SI.editId && !FI.A.value) FI.A.value = ultimoA();
+  const meses = [...new Set(INF.map(i => i.mes).filter(Boolean))].sort().reverse();
+  let lista;
+  if (admin) {
+    opciones($("#iMes"), meses, mesTxt); opciones($("#iJefe"), uniq("jefe")); opciones($("#iInsp"), uniq("inspector")); opciones($("#iFEess"), uniq("establecimiento"));
+    const f = { mes: $("#iMes").value, desde: $("#iDesde").value, hasta: $("#iHasta").value, jefe: $("#iJefe").value, insp: $("#iInsp").value, eess: $("#iFEess").value, q: sinTilde($("#iBuscar").value) };
+    lista = INF.filter(i => (!f.mes || i.mes === f.mes) && (!f.desde || i.fecha >= f.desde) && (!f.hasta || i.fecha <= f.hasta) && (!f.jefe || i.jefe === f.jefe) && (!f.insp || i.inspector === f.insp) && (!f.eess || i.establecimiento === f.eess) &&
+      (!f.q || sinTilde([i.a, i.de, i.asunto, i.direccion, i.propietario, i.inspector, i.establecimiento, i.distrito, i.jefe, ...i.observaciones].join(" ")).includes(f.q)));
+    const nObs = lista.reduce((a, i) => a + i.observaciones.length, 0);
+    $("#iKpis").innerHTML = [["Informes", fmt(lista.length), "\ud83d\udcc4", "#0e8a9b", "Registrados"], ["Inspectores", fmt(new Set(lista.map(i => i.inspector)).size), "\ud83e\uddd1\u200d\ud83d\udd27", "#e11d48", "Con informe"], ["Jefes de brigada", fmt(new Set(lista.map(i => i.jefe)).size), "\ud83d\udc77", "#4338ca", "Que informaron"], ["Observaciones", fmt(nObs), "\ud83d\udd0e", "#f97316", "En total"]]
+      .map(([t, v, ic, c, s]) => `<div class="kpi"><span class="ic" style="background:${c}">${ic}</span><div><div class="t">${t}</div><div class="v">${v}</div><div class="s" style="color:${c}">${s}</div></div></div>`).join("");
+    const g = agrupar(lista, "inspector"); const ki = Object.keys(g).sort((a, b) => g[b].length - g[a].length || a.localeCompare(b, "es"));
+    $("#tInfInsp").innerHTML = ki.length ? `<table><thead><tr><th class="izq">Inspector</th><th>Informes</th><th>Observaciones</th><th class="izq">Jefes de brigada que informaron</th><th>\u00daltimo informe</th><th></th></tr></thead><tbody>${ki.map(k => { const rs = g[k];
+      return `<tr><td class="nom">${esc(k)}</td><td><b>${rs.length}</b></td><td>${rs.reduce((a, i) => a + i.observaciones.length, 0)}</td><td class="izq">${[...new Set(rs.map(i => i.jefe))].map(esc).join(", ")}</td><td>${fechaPe(rs.map(i => i.fecha).sort().pop())}</td><td><button class="btn-mini" type="button" data-finsp="${esc(k)}">Ver sus informes</button></td></tr>`; }).join("")}</tbody></table>` : `<div class="vacio">Sin informes con estos filtros.</div>`;
+    $$("#tInfInsp [data-finsp]").forEach(b => b.onclick = () => { $("#iInsp").value = b.dataset.finsp; pintarInformes(); $("#tInformes").scrollIntoView({ behavior: "smooth" }); });
+  } else {
+    opciones($("#iMesJ"), meses, mesTxt);
+    lista = INF.filter(i => !$("#iMesJ").value || i.mes === $("#iMesJ").value);
+  }
+  SI.lista = lista;
+  $("#iListaTit").textContent = admin ? "Informes registrados" : "Mis informes";
+  $("#iCuenta").textContent = `${lista.length} informe${lista.length === 1 ? "" : "s"} \u00b7 ${new Set(lista.map(i => i.inspector)).size} inspector(es)`;
+  $("#tInformes").innerHTML = tablaInformes(lista, admin);
+  $$("#tInformes [data-iver]").forEach(b => b.onclick = () => verInforme(INF.find(i => i.id === b.dataset.iver)));
+  $$("#tInformes [data-iprt]").forEach(b => b.onclick = () => imprimirInformes([INF.find(i => i.id === b.dataset.iprt)]));
+  $$("#tInformes [data-ied]").forEach(b => b.onclick = () => editarInforme(b.dataset.ied));
+  $$("#tInformes [data-idel]").forEach(b => b.onclick = () => borrarInforme(b.dataset.idel));
+}
+function tablaInformes(l, admin) {
+  if (!l.length) return `<div class="vacio">${admin ? "No hay informes con estos filtros." : "A\u00fan no registras informes. Llena el formulario de arriba."}</div>`;
+  const ahora = Date.now();
+  const acc = i => { let h = `<button class="btn-mini" type="button" data-iver="${esc(i.id)}">\ud83d\udc41\ufe0f Ver</button><button class="btn-mini" type="button" data-iprt="${esc(i.id)}">\ud83d\udda8\ufe0f Imprimir</button>`;
+    if (admin) return h + `<br><button class="btn-mini" type="button" data-ied="${esc(i.id)}">Editar</button><button class="btn-mini rojo" type="button" data-idel="${esc(i.id)}">Eliminar</button>`;
+    const lim = limiteEdicion(i.registrado);
+    return h + (ahora <= lim ? `<br><button class="btn-mini" type="button" data-ied="${esc(i.id)}">Editar</button><button class="btn-mini rojo" type="button" data-idel="${esc(i.id)}">Eliminar</button><br><small class="plazo">Hasta ${fechaHora(lim)}</small>` : `<br><span class="tag t-gr" title="Pasaron las 24 horas h\u00e1biles para editar">\ud83d\udd12 Cerrado</span>`); };
+  const ubic = i => [i.sector && `Sector ${i.sector}`, i.mza && `Mza ${i.mza}`, i.ov && `Ov ${i.ov}`].filter(Boolean).join(" \u00b7 ");
+  return `<table><thead><tr><th>N\u00b0</th><th>Fecha informe</th>${admin ? '<th class="izq">Jefe de brigada</th>' : ""}<th class="izq">Inspector</th><th>Inspecci\u00f3n</th><th class="izq">Vivienda / lote</th><th class="izq">Establecimiento \u00b7 distrito</th><th class="izq">Propietario</th><th class="izq">Se observa</th><th></th></tr></thead><tbody>${ordenInf(l).map((i, n) =>
+    `<tr><td>${n + 1}</td><td>${fechaPe(i.fecha)}</td>${admin ? `<td class="nom">${esc(i.jefe)}</td>` : ""}<td class="nom">${esc(i.inspector)}</td><td>${fechaPe(i.fechaInsp)}<br><small class="plazo">${esc(i.hora)}</small></td><td class="izq">${esc(i.direccion)}${ubic(i) ? `<br><small class="plazo">${esc(ubic(i))}</small>` : ""}</td><td class="izq">${esc(i.establecimiento)}<br><small class="plazo">${esc(i.distrito)}</small></td><td class="izq">${esc(i.propietario || "\u2014")}</td><td class="obs"><b>${i.observaciones.length}</b> \u00b7 ${esc((i.observaciones[0] || "").slice(0, 90))}${(i.observaciones[0] || "").length > 90 ? "\u2026" : ""}</td><td class="inf-acc">${acc(i)}</td></tr>`).join("")}</tbody></table>`;
+}
+
+/* ---------- hoja del informe (igual al formato f\u00edsico) ---------- */
+function hojaInforme(i) {
+  const v = (x, cls) => `<span class="ih-v${cls ? " " + cls : ""}">${x ? esc(x) : "&nbsp;"}</span>`;
+  const dm = i.fechaInsp ? `${i.fechaInsp.slice(8)}/${i.fechaInsp.slice(5, 7)}` : "";
+  const [fd, fm, fa] = fechaLarga(i.fecha);
+  const obs = (i.observaciones || []).map(o => `<li>${esc(o)}</li>`); while (obs.length < 3) obs.push(`<li class="vac">&nbsp;</li>`);
+  const logo = new URL("logo.png", location.href).href;
+  return `<div class="ih">
+    <div class="ih-logo"><img src="${logo}" alt="" onerror="this.remove()"><span>DIRECCI\u00d3N REGIONAL DE SALUD SAN MART\u00cdN<br><small>UNIDAD DE GESTI\u00d3N DE ENFERMEDADES TRANSMISIBLES</small></span></div>
+    <h1>INFORME DE ACTIVIDADES DE VIGILANCIA Y CONTROL VECTORIAL - ARBOVIROSIS</h1>
+    <table class="ih-cab">
+      <tr><th>A</th><td class="p">:</td><td>${v(i.a, "l")}</td></tr>
+      <tr><th>DE</th><td class="p">:</td><td>${v(i.de, "l")}</td></tr>
+      <tr><th>ASUNTO</th><td class="p">:</td><td>Situaci\u00f3n Encontrada en ${v(i.asunto, "m")}</td></tr>
+      <tr><th>FECHA</th><td class="p">:</td><td>${v(fd, "c")} de ${v(fm, "c")} del ${v(fa, "c")}</td></tr>
+    </table>
+    <p class="ih-p">Siendo el d\u00eda ${v(dm, "c")}, a horas ${v(i.hora, "c")} en la vivienda o lote, ubicado en el Jr./Av./Psje. ${v(i.direccion)}, Sector ${v(i.sector, "c")}, Mza ${v(i.mza, "c")}, Ov ${v(i.ov, "c")} jurisdicci\u00f3n del establecimiento de Salud ${v(i.establecimiento)}, del distrito de ${v(i.distrito)}, de propiedad del Sr(a) ${v(i.propietario)}, inspeccionada por el Inspector Sr(a) ${v(i.inspector)},</p>
+    <p class="ih-so">Se observa:</p>
+    <ol class="ih-obs">${obs.join("")}</ol>
+    <div class="ih-firma"><div><span>FIRMA:</span><i></i></div><b>${esc(i.de || "")}</b><small>Jefe de brigada</small></div>
+  </div>`;
+}
+function verInforme(i, previa) {
+  if (!i) return;
+  $("#dlgT").textContent = previa ? "Vista previa del informe" : `Informe del ${fechaPe(i.fecha)} \u2014 ${i.inspector}`;
+  $("#dlgB").innerHTML = `<div class="inf-dlgbar"><button class="btn-azul" type="button" id="iDlgPrint">\ud83d\udda8\ufe0f Imprimir / guardar PDF</button></div><div class="inf-papel">${hojaInforme(i)}</div>`;
+  $("#iDlgPrint").onclick = () => imprimirInformes([i]);
+  $("#dlg").showModal();
+}
+function imprimirInformes(lista) {
+  const w = window.open("", "_blank"); if (!w) return toast("Permite las ventanas emergentes para imprimir");
+  const tit = lista.length === 1 ? `Informe_${(lista[0].inspector || "").replace(/\s+/g, "_")}_${lista[0].fecha || ""}` : `Informes_${hoyTxt}`;
+  w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${esc(tit)}</title><style>${IH_CSS}
+    body{margin:0;background:#e5e7eb}
+    .hoja{background:#fff;width:210mm;min-height:297mm;margin:10mm auto;padding:16mm 20mm;box-sizing:border-box;box-shadow:0 2px 12px rgba(0,0,0,.15)}
+    @page{size:A4;margin:0}
+    @media print{body{background:#fff}.hoja{margin:0;box-shadow:none;break-after:page}.hoja:last-child{break-after:auto}}
+  </style></head><body>${lista.map(i => `<div class="hoja">${hojaInforme(i)}</div>`).join("")}<script>window.onload=function(){setTimeout(function(){window.print()},400)}<\/script></body></html>`);
+  w.document.close();
+}
+function excelInformes() {
+  const l = ordenInf(SI.lista); if (!l.length) return toast("No hay informes con estos filtros");
+  libro([["Informes", [["FECHA INFORME", "A", "DE", "ASUNTO (SITUACI\u00d3N ENCONTRADA EN)", "FECHA INSPECCI\u00d3N", "HORA", "JR./AV./PSJE.", "SECTOR", "MZA", "OV", "ESTABLECIMIENTO DE SALUD", "DISTRITO", "PROPIETARIO", "INSPECTOR", "N\u00b0 OBSERVACIONES", "SE OBSERVA", "JEFE DE BRIGADA"],
+    ...l.map(i => [fechaPe(i.fecha), i.a, i.de, i.asunto, fechaPe(i.fechaInsp), i.hora, i.direccion, i.sector, i.mza, i.ov, i.establecimiento, i.distrito, i.propietario, i.inspector, i.observaciones.length, i.observaciones.map((o, n) => `${n + 1}. ${o}`).join("  "), i.jefe])]]], `Informes_inspectores_${hoyTxt.replace(/-/g, "")}.xlsx`);
 }
 
 /* =====================================================================
