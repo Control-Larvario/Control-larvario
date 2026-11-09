@@ -705,6 +705,7 @@ const IH_CSS = `
 .ih-cab .ih-v.l{display:inline-block;min-width:75%}
 .ih-cab .ih-v.m{display:inline-block;min-width:55%}
 .ih-p{line-height:2.4;text-align:justify;margin:0}
+.ih-p .nw{white-space:nowrap}
 .ih-so{font-weight:700;margin:14px 0 2px}
 .ih-obs{margin:0;padding-left:24px;line-height:2.2}
 .ih-obs li{border-bottom:1px dotted #444;color:#1e3a8a;font-weight:600}
@@ -1020,7 +1021,7 @@ function hojaInforme(i) {
       <tr><th>ASUNTO</th><td class="p">:</td><td>Situaci\u00f3n Encontrada en ${v(i.asunto, "m")}</td></tr>
       <tr><th>FECHA</th><td class="p">:</td><td>${v(fd, "c")} de ${v(fm, "c")} del ${v(fa, "c")}</td></tr>
     </table>
-    <p class="ih-p">Siendo el d\u00eda ${v(dm, "c")}, a horas ${v(i.hora, "c")} en la vivienda o lote, ubicado en el Jr./Av./Psje. ${v(i.direccion)}, Sector ${v(i.sector, "c")}, Mza ${v(i.mza, "c")}, Ov ${v(i.ov, "c")} jurisdicci\u00f3n del establecimiento de Salud ${v(i.establecimiento)}, del distrito de ${v(i.distrito)}, de propiedad del Sr(a) ${v(i.propietario)}, inspeccionada por el Inspector Sr(a) ${v(i.inspector)},</p>
+    <p class="ih-p"><span class="nw">Siendo el d\u00eda ${v(dm, "c")},</span> <span class="nw">a horas ${v(i.hora, "c")}</span> en la vivienda o lote, ubicado en el Jr./Av./Psje. ${v(i.direccion)}, <span class="nw">Sector ${v(i.sector, "c")},</span> <span class="nw">Mza ${v(i.mza, "c")},</span> <span class="nw">Ov ${v(i.ov, "c")}</span> jurisdicci\u00f3n del establecimiento de Salud ${v(i.establecimiento)}, del distrito de ${v(i.distrito)}, <span class="nw">de propiedad del Sr(a) ${v(i.propietario)},</span> inspeccionada por el Inspector Sr(a) ${v(i.inspector)},</p>
     <p class="ih-so">Se observa:</p>
     <ol class="ih-obs">${obs.join("")}</ol>
     <div class="ih-firma"><div><span>FIRMA:</span><i></i></div><b>${esc(i.de || "")}</b><small>Jefe de brigada</small></div>
@@ -1060,8 +1061,8 @@ function imprimirInformes(lista) {
     .hoja .ih-firma div{font-size:12.5px}
     .hoja .ih-firma b{margin:3px 0 0 58px;font-size:10.5px}
     .hoja .ih-firma small{margin-left:58px;font-size:9px}
-    .pliego{background:#fff;width:210mm;height:297mm;margin:10mm auto;box-shadow:0 2px 12px rgba(0,0,0,.15);overflow:hidden}
-    .pliego .hoja{margin:0;height:148.5mm;box-shadow:none}
+    .pliego{background:#fff;width:210mm;height:296mm;margin:10mm auto;box-shadow:0 2px 12px rgba(0,0,0,.15);overflow:hidden}
+    .pliego .hoja{margin:0;height:148mm;box-shadow:none}
     .pliego .hoja+.hoja{border-top:1px dashed #9ca3af}
     @page{size:${dos ? "A4 portrait" : "A5 landscape"};margin:0}
     @media print{body{background:#fff}.hoja{margin:0;box-shadow:none;break-after:page}.hoja:last-child{break-after:auto}.pliego{margin:0;box-shadow:none;break-after:page}.pliego:last-child{break-after:auto}.pliego .hoja{break-after:auto}}
