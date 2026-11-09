@@ -704,11 +704,11 @@ const IH_CSS = `
 .ih-v.c{display:inline-block;min-width:46px;text-align:center}
 .ih-cab .ih-v.l{display:inline-block;min-width:75%}
 .ih-cab .ih-v.m{display:inline-block;min-width:55%}
-.ih-p{line-height:2.4;text-align:justify;margin:0}
+.ih-p{line-height:2.4;text-align:justify;text-justify:inter-word;margin:0}
 .ih-p .nw{white-space:nowrap}
 .ih-so{font-weight:700;margin:14px 0 2px}
 .ih-obs{margin:0;padding-left:24px;line-height:2.2}
-.ih-obs li{border-bottom:1px dotted #444;color:#1e3a8a;font-weight:600}
+.ih-obs li{border-bottom:1px dotted #444;color:#1e3a8a;font-weight:600;text-align:justify;text-justify:inter-word}
 .ih-obs li::marker{color:#111;font-weight:700}
 .ih-obs li.vac{list-style:none}
 .ih-firma{margin:80px auto 0;width:340px;text-align:center}
