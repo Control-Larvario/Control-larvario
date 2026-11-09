@@ -820,7 +820,7 @@ function montarInformes() {
   </div>
 
   <div class="inf-card">
-    <div class="inf-bar" style="margin:0 0 6px;justify-content:space-between"><h2 id="iListaTit">Mis informes</h2><label id="iFilJefe" class="inf-fil" style="margin:0"><span style="font-size:.8rem;font-weight:600;color:#334155">Mes<select id="iMesJ"></select></span></label></div>
+    <div class="inf-bar" style="margin:0 0 6px;justify-content:space-between"><h2 id="iListaTit">Mis informes</h2><div id="iFilJefe" class="inf-bar" style="margin:0;align-items:flex-end"><label style="display:flex;flex-direction:column;gap:4px;font-size:.8rem;font-weight:600;color:#334155">Mes<select id="iMesJ" style="font:inherit;font-weight:400;padding:7px 9px;border:1px solid #cbd5e1;border-radius:8px"></select></label><label style="display:flex;flex-direction:column;gap:4px;font-size:.8rem;font-weight:600;color:#334155">D\u00eda del informe<input type="date" id="iDiaJ" style="font:inherit;font-weight:400;padding:6px 9px;border:1px solid #cbd5e1;border-radius:8px"></label><button class="btn-azul" type="button" id="iPrintJ" title="Imprime los informes de la lista, 2 por hoja A4">\ud83d\udda8\ufe0f Imprimir la lista (2 por hoja)</button></div></div>
     <p class="sub" id="iCuenta"></p>
     <div class="tabla" id="tInformes"></div>
   </div>`;
@@ -834,12 +834,13 @@ function montarInformes() {
   $("#iVista").onclick = () => verInforme(Object.assign(leerFormInf(), { jefe: FI.De.value }), true);
   $("#iCancelar").onclick = () => { SI.nuevo = false; limpiarFormInf(false); pintarInformes(); };
   FI.Usuario.onchange = () => { const u = USERS.find(x => x.usuario === FI.Usuario.value); if (u) FI.De.value = normName(u.nombre); };
-  ["iMes", "iDesde", "iHasta", "iJefe", "iInsp", "iFEess", "iMesJ"].forEach(id => $("#" + id).onchange = () => {
-    if (id === "iMes") { $("#iDesde").value = ""; $("#iHasta").value = ""; } if (id === "iDesde" || id === "iHasta") $("#iMes").value = ""; pintarInformes(); });
+  ["iMes", "iDesde", "iHasta", "iJefe", "iInsp", "iFEess", "iMesJ", "iDiaJ"].forEach(id => $("#" + id).onchange = () => {
+    if (id === "iMes") { $("#iDesde").value = ""; $("#iHasta").value = ""; } if (id === "iDesde" || id === "iHasta") $("#iMes").value = ""; if (id === "iMesJ") $("#iDiaJ").value = ""; if (id === "iDiaJ") $("#iMesJ").value = ""; pintarInformes(); });
   $("#iBuscar").oninput = pintarInformes;
   $("#iLimpiarFil").onclick = () => { ["iMes", "iDesde", "iHasta", "iJefe", "iInsp", "iFEess", "iBuscar"].forEach(id => $("#" + id).value = ""); pintarInformes(); };
   $("#iNuevo").onclick = () => { SI.nuevo = true; limpiarFormInf(false); pintarInformes(); $("#infFormCard").scrollIntoView({ behavior: "smooth" }); };
   $("#iPrintAll").onclick = () => SI.lista.length ? imprimirInformes(ordenInf(SI.lista)) : toast("No hay informes con estos filtros");
+  $("#iPrintJ").onclick = () => SI.lista.length ? imprimirInformes(ordenInf(SI.lista)) : toast("No hay informes en la lista");
   $("#iXls").onclick = excelInformes;
   $("#iRecargar").onclick = async () => { await cargarInformes(); pintarInformes(); toast("Informes actualizados"); };
   limpiarFormInf(false);
@@ -961,7 +962,8 @@ function pintarInformes() {
     $$("#tInfInsp [data-finsp]").forEach(b => b.onclick = () => { $("#iInsp").value = b.dataset.finsp; pintarInformes(); $("#tInformes").scrollIntoView({ behavior: "smooth" }); });
   } else {
     opciones($("#iMesJ"), meses, mesTxt);
-    lista = INF.filter(i => !$("#iMesJ").value || i.mes === $("#iMesJ").value);
+    const diaJ = $("#iDiaJ").value;
+    lista = INF.filter(i => (!$("#iMesJ").value || i.mes === $("#iMesJ").value) && (!diaJ || String(i.fecha || "").slice(0, 10) === diaJ));
   }
   SI.lista = lista;
   $("#iListaTit").textContent = admin ? "Informes registrados" : "Mis informes";
@@ -1016,6 +1018,7 @@ function verInforme(i, previa) {
 }
 function imprimirInformes(lista) {
   const w = window.open("", "_blank"); if (!w) return toast("Permite las ventanas emergentes para imprimir");
+  const dos = lista.length > 1; const pares = []; for (let k = 0; k < lista.length; k += 2) pares.push(lista.slice(k, k + 2));
   const tit = lista.length === 1 ? `Informe_${numInf(lista[0]).replace(/[^A-Za-z0-9-]+/g, "_")}_${(lista[0].inspector || "").replace(/\s+/g, "_")}` : `Informes_${hoyTxt}`;
   w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${esc(tit)}</title><style>${IH_CSS}
     body{margin:0;background:#e5e7eb}
@@ -1039,9 +1042,12 @@ function imprimirInformes(lista) {
     .hoja .ih-firma div{font-size:12.5px}
     .hoja .ih-firma b{margin:3px 0 0 58px;font-size:10.5px}
     .hoja .ih-firma small{margin-left:58px;font-size:9px}
-    @page{size:A5 landscape;margin:0}
-    @media print{body{background:#fff}.hoja{margin:0;box-shadow:none;break-after:page}.hoja:last-child{break-after:auto}}
-  </style></head><body>${lista.map(i => `<div class="hoja">${hojaInforme(i)}</div>`).join("")}<script>window.onload=function(){setTimeout(function(){window.print()},400)}<\/script></body></html>`);
+    .pliego{background:#fff;width:210mm;height:297mm;margin:10mm auto;box-shadow:0 2px 12px rgba(0,0,0,.15);overflow:hidden}
+    .pliego .hoja{margin:0;height:148.5mm;box-shadow:none}
+    .pliego .hoja+.hoja{border-top:1px dashed #9ca3af}
+    @page{size:${dos ? "A4 portrait" : "A5 landscape"};margin:0}
+    @media print{body{background:#fff}.hoja{margin:0;box-shadow:none;break-after:page}.hoja:last-child{break-after:auto}.pliego{margin:0;box-shadow:none;break-after:page}.pliego:last-child{break-after:auto}.pliego .hoja{break-after:auto}}
+  </style></head><body>${dos ? pares.map(par => `<div class="pliego">${par.map(i => `<div class="hoja">${hojaInforme(i)}</div>`).join("")}</div>`).join("") : lista.map(i => `<div class="hoja">${hojaInforme(i)}</div>`).join("")}<script>window.onload=function(){setTimeout(function(){window.print()},400)}<\/script></body></html>`);
   w.document.close();
 }
 function excelInformes() {
