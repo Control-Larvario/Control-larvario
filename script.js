@@ -1019,8 +1019,27 @@ function imprimirInformes(lista) {
   const tit = lista.length === 1 ? `Informe_${numInf(lista[0]).replace(/[^A-Za-z0-9-]+/g, "_")}_${(lista[0].inspector || "").replace(/\s+/g, "_")}` : `Informes_${hoyTxt}`;
   w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${esc(tit)}</title><style>${IH_CSS}
     body{margin:0;background:#e5e7eb}
-    .hoja{background:#fff;width:210mm;min-height:297mm;margin:10mm auto;padding:16mm 20mm;box-sizing:border-box;box-shadow:0 2px 12px rgba(0,0,0,.15)}
-    @page{size:A4;margin:0}
+    .hoja{background:#fff;width:148mm;min-height:210mm;margin:10mm auto;padding:10mm 11mm;box-sizing:border-box;box-shadow:0 2px 12px rgba(0,0,0,.15);overflow:hidden}
+    .hoja .ih{font-size:10px}
+    .hoja .ih-logo{font-size:7.5px;gap:7px;margin-bottom:10px}
+    .hoja .ih-logo img{height:32px}
+    .hoja .ih-logo small{font-size:6.5px}
+    .hoja .ih h1{font-size:10.5px;margin:4px 0 6px}
+    .hoja .ih-num{font-size:9.5px;margin:0 0 12px}
+    .hoja .ih-cab{margin-bottom:12px}
+    .hoja .ih-cab th{width:70px;padding:5px 0 5px 14px}
+    .hoja .ih-cab td{padding:5px 0}
+    .hoja .ih-cab td.p{width:12px}
+    .hoja .ih-v{padding:0 3px}
+    .hoja .ih-v.c{min-width:30px}
+    .hoja .ih-p{line-height:2.1}
+    .hoja .ih-so{margin:10px 0 2px}
+    .hoja .ih-obs{padding-left:18px;line-height:2}
+    .hoja .ih-firma{margin:45px auto 0;width:240px}
+    .hoja .ih-firma div{font-size:11px}
+    .hoja .ih-firma b{margin:4px 0 0 50px;font-size:9px}
+    .hoja .ih-firma small{margin-left:50px;font-size:8px}
+    @page{size:A5 portrait;margin:0}
     @media print{body{background:#fff}.hoja{margin:0;box-shadow:none;break-after:page}.hoja:last-child{break-after:auto}}
   </style></head><body>${lista.map(i => `<div class="hoja">${hojaInforme(i)}</div>`).join("")}<script>window.onload=function(){setTimeout(function(){window.print()},400)}<\/script></body></html>`);
   w.document.close();
