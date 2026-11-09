@@ -1037,7 +1037,7 @@ function verInforme(i, previa) {
 function imprimirInformes(lista) {
   lista = (lista || []).filter(Boolean); if (!lista.length) return;
   const w = window.open("", "_blank"); if (!w) return toast("Permite las ventanas emergentes para imprimir");
-  const dos = lista.length > 1; const pares = []; gruposJF(lista).forEach(gr => { for (let k = 0; k < gr.items.length; k += 2) pares.push(gr.items.slice(k, k + 2)); });
+  const dos = lista.length > 1; const pares = [], seguidos = []; gruposJF(lista).forEach(gr => seguidos.push(...gr.items)); for (let k = 0; k < seguidos.length; k += 2) pares.push(seguidos.slice(k, k + 2));
   const tit = lista.length === 1 ? `Informe_${numInf(lista[0]).replace(/[^A-Za-z0-9-]+/g, "_")}_${(lista[0].inspector || "").replace(/\s+/g, "_")}` : (new Set(lista.map(i => i.jefe)).size === 1 && new Set(lista.map(diaInf)).size === 1 ? `Informes_${(lista[0].jefe || "").replace(/\s+/g, "_")}_${diaInf(lista[0])}` : `Informes_${hoyTxt}`);
   w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${esc(tit)}</title><style>${IH_CSS}
     body{margin:0;background:#e5e7eb}
