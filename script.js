@@ -817,6 +817,9 @@ function montarInformes() {
     <h2>\ud83d\udc77 Informes por inspector</h2>
     <p class="sub">Seg\u00fan los filtros del reporte.</p>
     <div class="tabla" id="tInfInsp"></div>
+    <h2 style="margin:18px 0 4px">\ud83d\udda8\ufe0f Imprimir por jefe de brigada y fecha</h2>
+    <p class="sub">Cada fila junta los informes de un jefe de brigada en una fecha; se imprimen 2 por hoja A4 (dos A5 horizontales). \u2705 = ya descargado o impreso en esta PC.</p>
+    <div class="tabla" id="tInfJF"></div>
   </div>
 
   <div class="inf-card">
@@ -933,6 +936,13 @@ async function borrarInforme(id) {
 }
 
 /* ---------- vista ---------- */
+/* ---------- control de informes ya descargados / impresos (en esta PC) ---------- */
+const IMP_KEY = "inf_impresos_v1";
+function impresos() { try { return new Set(JSON.parse(localStorage.getItem(IMP_KEY)) || []); } catch (e) { return new Set(); } }
+function marcarImpresos(ids, quitar) { const st = impresos(); ids.forEach(id => id && (quitar ? st.delete(id) : st.add(id))); try { localStorage.setItem(IMP_KEY, JSON.stringify([...st])); } catch (e) {} }
+const diaInf = i => String(i.fecha || "").slice(0, 10);
+function gruposJF(l) { const g = {}, orden = []; ordenInf(l).forEach(i => { const k = diaInf(i) + "|" + (i.jefe || ""); if (!g[k]) { g[k] = []; orden.push(k); } g[k].push(i); });
+  return orden.map(k => ({ fecha: k.split("|")[0], jefe: k.split("|").slice(1).join("|"), items: g[k].slice().reverse() })).sort((a, b) => b.fecha.localeCompare(a.fecha) || a.jefe.localeCompare(b.jefe, "es")); }
 const ordenInf = l => [...l].sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)) || String(b.registrado).localeCompare(String(a.registrado)));
 function pintarInformes() {
   if (!$("#v-informes") || !YO) return;
@@ -960,6 +970,12 @@ function pintarInformes() {
     $("#tInfInsp").innerHTML = ki.length ? `<table><thead><tr><th class="izq">Inspector</th><th>Informes</th><th>Observaciones</th><th class="izq">Jefes de brigada que informaron</th><th>\u00daltimo informe</th><th></th></tr></thead><tbody>${ki.map(k => { const rs = g[k];
       return `<tr><td class="nom">${esc(k)}</td><td><b>${rs.length}</b></td><td>${rs.reduce((a, i) => a + i.observaciones.length, 0)}</td><td class="izq">${[...new Set(rs.map(i => i.jefe))].map(esc).join(", ")}</td><td>${fechaPe(rs.map(i => i.fecha).sort().pop())}</td><td><button class="btn-mini" type="button" data-finsp="${esc(k)}">Ver sus informes</button></td></tr>`; }).join("")}</tbody></table>` : `<div class="vacio">Sin informes con estos filtros.</div>`;
     $$("#tInfInsp [data-finsp]").forEach(b => b.onclick = () => { $("#iInsp").value = b.dataset.finsp; pintarInformes(); $("#tInformes").scrollIntoView({ behavior: "smooth" }); });
+    const stI = impresos(); SI.grupos = gruposJF(lista.filter(i => !i.pend));
+    $("#tInfJF").innerHTML = SI.grupos.length ? `<table><thead><tr><th>Fecha del informe</th><th class="izq">Jefe de brigada</th><th>Informes</th><th>N\u00b0 de informes</th><th>Hojas A4</th><th>Estado</th><th></th></tr></thead><tbody>${SI.grupos.map((gr, n) => { const hechos = gr.items.filter(i => stI.has(i.id)).length, todos = hechos === gr.items.length;
+      const est = todos ? '<span class="tag" style="background:#dcfce7;color:#166534">\u2705 Descargado</span>' : hechos ? `<span class="tag t-am">${hechos} de ${gr.items.length}</span>` : '<span class="tag t-gr">Pendiente</span>';
+      return `<tr${todos ? ' style="background:#f0fdf4"' : ""}><td>${fechaPe(gr.fecha)}</td><td class="nom">${esc(gr.jefe)}</td><td><b>${gr.items.length}</b></td><td><small class="plazo">${gr.items.map(i => esc(numInf(i))).join("<br>")}</small></td><td>${Math.ceil(gr.items.length / 2)}</td><td>${est}</td><td><button class="btn-mini" type="button" data-jfprt="${n}">\ud83d\udda8\ufe0f Imprimir</button>${hechos ? `<br><button class="btn-mini" type="button" data-jfdes="${n}" title="Quitar la marca de descargado">Desmarcar</button>` : ""}</td></tr>`; }).join("")}</tbody></table>` : `<div class="vacio">Sin informes con estos filtros.</div>`;
+    $$("#tInfJF [data-jfprt]").forEach(b => b.onclick = () => imprimirInformes(SI.grupos[+b.dataset.jfprt].items));
+    $$("#tInfJF [data-jfdes]").forEach(b => b.onclick = () => { marcarImpresos(SI.grupos[+b.dataset.jfdes].items.map(i => i.id), true); pintarInformes(); });
   } else {
     opciones($("#iMesJ"), meses, mesTxt);
     const diaJ = $("#iDiaJ").value;
@@ -981,9 +997,10 @@ function tablaInformes(l, admin) {
     if (admin) return h + `<br><button class="btn-mini" type="button" data-ied="${esc(i.id)}">Editar</button><button class="btn-mini rojo" type="button" data-idel="${esc(i.id)}">Eliminar</button>`;
     const lim = limiteEdicion(i.registrado);
     return h + (ahora <= lim ? `<br><button class="btn-mini" type="button" data-ied="${esc(i.id)}">Editar</button><button class="btn-mini rojo" type="button" data-idel="${esc(i.id)}">Eliminar</button><br><small class="plazo">Hasta ${fechaHora(lim)}</small>` : `<br><span class="tag t-gr" title="Pasaron las 24 horas h\u00e1biles para editar">\ud83d\udd12 Cerrado</span>`); };
+  const impSet = impresos();
   const ubic = i => [i.sector && `Sector ${i.sector}`, i.mza && `Mza ${i.mza}`, i.ov && `Ov ${i.ov}`].filter(Boolean).join(" \u00b7 ");
   return `<table><thead><tr><th>N\u00b0</th><th>Fecha informe</th>${admin ? '<th class="izq">Jefe de brigada</th>' : ""}<th class="izq">Inspector</th><th>Inspecci\u00f3n</th><th class="izq">Vivienda / lote</th><th class="izq">Establecimiento \u00b7 distrito</th><th class="izq">Propietario</th><th class="izq">Se observa</th><th></th></tr></thead><tbody>${ordenInf(l).map((i, n) =>
-    `<tr><td class="nom" style="white-space:nowrap">${i.pend ? '<small class="plazo">S/N</small>' : esc(numInf(i))}</td><td>${fechaPe(i.fecha)}</td>${admin ? `<td class="nom">${esc(i.jefe)}</td>` : ""}<td class="nom">${esc(i.inspector)}</td><td>${fechaPe(i.fechaInsp)}<br><small class="plazo">${esc(i.hora)}</small></td><td class="izq">${esc(i.direccion)}${ubic(i) ? `<br><small class="plazo">${esc(ubic(i))}</small>` : ""}</td><td class="izq">${esc(i.establecimiento)}<br><small class="plazo">${esc(i.distrito)}</small></td><td class="izq">${esc(i.propietario || "\u2014")}</td><td class="obs"><b>${i.observaciones.length}</b> \u00b7 ${esc((i.observaciones[0] || "").slice(0, 90))}${(i.observaciones[0] || "").length > 90 ? "\u2026" : ""}</td><td class="inf-acc">${acc(i)}</td></tr>`).join("")}</tbody></table>`;
+    `<tr${impSet.has(i.id) ? ' style="background:#f0fdf4"' : ""}><td class="nom" style="white-space:nowrap">${i.pend ? '<small class="plazo">S/N</small>' : esc(numInf(i))}${!i.pend && impSet.has(i.id) ? '<br><span class="tag" style="background:#dcfce7;color:#166534" title="Ya descargado o impreso en esta PC">\u2705 Descargado</span>' : ""}</td><td>${fechaPe(i.fecha)}</td>${admin ? `<td class="nom">${esc(i.jefe)}</td>` : ""}<td class="nom">${esc(i.inspector)}</td><td>${fechaPe(i.fechaInsp)}<br><small class="plazo">${esc(i.hora)}</small></td><td class="izq">${esc(i.direccion)}${ubic(i) ? `<br><small class="plazo">${esc(ubic(i))}</small>` : ""}</td><td class="izq">${esc(i.establecimiento)}<br><small class="plazo">${esc(i.distrito)}</small></td><td class="izq">${esc(i.propietario || "\u2014")}</td><td class="obs"><b>${i.observaciones.length}</b> \u00b7 ${esc((i.observaciones[0] || "").slice(0, 90))}${(i.observaciones[0] || "").length > 90 ? "\u2026" : ""}</td><td class="inf-acc">${acc(i)}</td></tr>`).join("")}</tbody></table>`;
 }
 
 /* ---------- hoja del informe (igual al formato f\u00edsico) ---------- */
@@ -1017,9 +1034,10 @@ function verInforme(i, previa) {
   $("#dlg").showModal();
 }
 function imprimirInformes(lista) {
+  lista = (lista || []).filter(Boolean); if (!lista.length) return;
   const w = window.open("", "_blank"); if (!w) return toast("Permite las ventanas emergentes para imprimir");
-  const dos = lista.length > 1; const pares = []; for (let k = 0; k < lista.length; k += 2) pares.push(lista.slice(k, k + 2));
-  const tit = lista.length === 1 ? `Informe_${numInf(lista[0]).replace(/[^A-Za-z0-9-]+/g, "_")}_${(lista[0].inspector || "").replace(/\s+/g, "_")}` : `Informes_${hoyTxt}`;
+  const dos = lista.length > 1; const pares = []; gruposJF(lista).forEach(gr => { for (let k = 0; k < gr.items.length; k += 2) pares.push(gr.items.slice(k, k + 2)); });
+  const tit = lista.length === 1 ? `Informe_${numInf(lista[0]).replace(/[^A-Za-z0-9-]+/g, "_")}_${(lista[0].inspector || "").replace(/\s+/g, "_")}` : (new Set(lista.map(i => i.jefe)).size === 1 && new Set(lista.map(diaInf)).size === 1 ? `Informes_${(lista[0].jefe || "").replace(/\s+/g, "_")}_${diaInf(lista[0])}` : `Informes_${hoyTxt}`);
   w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${esc(tit)}</title><style>${IH_CSS}
     body{margin:0;background:#e5e7eb}
     .hoja{background:#fff;width:210mm;height:148mm;margin:10mm auto;padding:7mm 13mm;box-sizing:border-box;box-shadow:0 2px 12px rgba(0,0,0,.15);overflow:hidden}
@@ -1049,6 +1067,7 @@ function imprimirInformes(lista) {
     @media print{body{background:#fff}.hoja{margin:0;box-shadow:none;break-after:page}.hoja:last-child{break-after:auto}.pliego{margin:0;box-shadow:none;break-after:page}.pliego:last-child{break-after:auto}.pliego .hoja{break-after:auto}}
   </style></head><body>${dos ? pares.map(par => `<div class="pliego">${par.map(i => `<div class="hoja">${hojaInforme(i)}</div>`).join("")}</div>`).join("") : lista.map(i => `<div class="hoja">${hojaInforme(i)}</div>`).join("")}<script>window.onload=function(){setTimeout(function(){window.print()},400)}<\/script></body></html>`);
   w.document.close();
+  marcarImpresos(lista.filter(i => !i.pend).map(i => i.id)); if (typeof pintarInformes === "function") setTimeout(pintarInformes, 300);
 }
 function excelInformes() {
   const l = ordenInf(SI.lista); if (!l.length) return toast("No hay informes con estos filtros");
